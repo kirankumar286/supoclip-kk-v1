@@ -9,6 +9,7 @@ import json
 import subprocess
 import uuid
 
+from ..ai import compute_duration_category
 from ..utils.async_helpers import run_in_thread
 from ..youtube_utils import (
     async_download_youtube_video,
@@ -302,6 +303,7 @@ class VideoService:
                 "shareability_score": segment.get("shareability_score", 0),
                 "hook_type": segment.get("hook_type"),
                 "hook_title": segment.get("hook_title"),
+                "duration_category": segment.get("duration_category") or compute_duration_category(cleaned_duration),
                 "keep_ranges": keep_ranges,
             }
         except Exception as e:
@@ -490,6 +492,7 @@ class VideoService:
                             "shareability_score": virality.get("shareability_score", 0),
                             "hook_type": virality.get("hook_type"),
                             "hook_title": segment.get("hook_title"),
+                            "duration_category": segment.get("duration_category"),
                         }
                     )
                 else:
@@ -508,6 +511,7 @@ class VideoService:
                             "shareability_score": virality.get("shareability_score", 0),
                             "hook_type": virality.get("hook_type"),
                             "hook_title": getattr(segment, "hook_title", None),
+                            "duration_category": getattr(segment, "duration_category", None),
                         }
                     )
 

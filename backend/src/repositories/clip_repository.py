@@ -33,6 +33,7 @@ class ClipRepository:
         shareability_score: int = 0,
         hook_type: Optional[str] = None,
         hook_title: Optional[str] = None,
+        duration_category: Optional[str] = None,
     ) -> str:
         """Create a new clip record and return its ID."""
         import uuid
@@ -44,12 +45,12 @@ class ClipRepository:
                     (id, task_id, filename, file_path, start_time, end_time, duration,
                      text, relevance_score, reasoning, clip_order,
                      virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                     hook_title, created_at)
+                     hook_title, duration_category, created_at)
                     VALUES
                     (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
                      :text, :relevance_score, :reasoning, :clip_order,
                      :virality_score, :hook_score, :engagement_score, :value_score, :shareability_score, :hook_type,
-                     :hook_title, NOW())
+                     :hook_title, :duration_category, NOW())
                     RETURNING id
                 """),
                 {
@@ -71,6 +72,7 @@ class ClipRepository:
                     "shareability_score": shareability_score,
                     "hook_type": hook_type,
                     "hook_title": hook_title,
+                    "duration_category": duration_category,
                 },
             )
         except Exception:
@@ -114,7 +116,7 @@ class ClipRepository:
                     SELECT id, filename, file_path, start_time, end_time, duration,
                            text, relevance_score, reasoning, clip_order, created_at,
                            virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                           hook_title
+                           hook_title, duration_category
                     FROM generated_clips
                     WHERE task_id = :task_id
                     ORDER BY clip_order ASC
@@ -157,6 +159,7 @@ class ClipRepository:
                     "shareability_score": row.shareability_score or 0,
                     "hook_type": row.hook_type,
                     "hook_title": getattr(row, "hook_title", None),
+                    "duration_category": getattr(row, "duration_category", None),
                 }
             )
 
@@ -207,7 +210,7 @@ class ClipRepository:
                     SELECT id, task_id, filename, file_path, start_time, end_time, duration,
                            text, relevance_score, reasoning, clip_order,
                            virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                           hook_title, created_at
+                           hook_title, duration_category, created_at
                     FROM generated_clips
                     WHERE id = :clip_id
                     """
@@ -250,6 +253,7 @@ class ClipRepository:
             "shareability_score": row.shareability_score or 0,
             "hook_type": row.hook_type,
             "hook_title": getattr(row, "hook_title", None),
+            "duration_category": getattr(row, "duration_category", None),
             "created_at": row.created_at.isoformat(),
             "video_url": f"/tasks/{row.task_id}/clips/{row.id}/file",
         }

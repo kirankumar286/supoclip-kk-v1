@@ -32,6 +32,28 @@ TRANSCRIPT_SPAN_RE = re.compile(
     r"(?P<end>\d{1,2}:\d{2}(?::\d{2})?)\]\s*(?P<text>.*)$"
 )
 
+# Duration categories for multi-format viral content generation
+DURATION_CATEGORIES = {
+    "micro": (6, 15),
+    "short": (15, 30),
+    "medium": (30, 60),
+    "standard": (60, 120),
+    "extended": (120, 180),
+}
+
+
+def compute_duration_category(duration_seconds: float) -> str:
+    """Return the duration category id for a given clip length."""
+    if duration_seconds < 15:
+        return "micro"
+    if duration_seconds < 30:
+        return "short"
+    if duration_seconds < 60:
+        return "medium"
+    if duration_seconds < 120:
+        return "standard"
+    return "extended"
+
 
 class ViralityAnalysis(BaseModel):
     """Detailed virality breakdown for a segment."""
@@ -117,6 +139,13 @@ class TranscriptSegment(BaseModel):
             "the segment content, no hashtags, no emojis, no surrounding quotes."
         ),
     )
+    duration_category: Optional[str] = Field(
+        default=None,
+        description=(
+            "Target duration bucket: micro (6-15s), short (15-30s), "
+            "medium (30-60s), standard (60-120s), extended (120-180s)"
+        ),
+    )
 
     @field_validator("relevance_score", mode="before")
     @classmethod
@@ -187,10 +216,11 @@ OUTPUT CONTRACT:
 - Return valid JSON only. Do not output Markdown, headings, bullets, prose, code fences, explanations, or commentary outside the JSON object.
 - The top-level JSON object must include: "most_relevant_segments", "summary", and "key_topics".
 - Only include "broll_opportunities" when B-roll was requested.
-- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
+- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", and "duration_category".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
-- Every returned segment must be 10-120 seconds long. Prefer 20-90 seconds.
+- "duration_category" must be one of: "micro", "short", "medium", "standard", "extended".
+- Every returned segment must be 6-180 seconds long.
 
 CORE OBJECTIVES:
 1. Identify segments that would be compelling on social media platforms
@@ -281,22 +311,32 @@ Identify 2-4 moments in each segment where B-roll footage could enhance the vide
 - At emotional peaks that could use supporting imagery
 - Use simple, searchable keywords (e.g., "coffee shop", "laptop coding", "money stack")
 
+DURATION CATEGORY DISTRIBUTION:
+Spread your selections across these duration categories. For each segment, set "duration_category" to the matching bucket.
+- "micro" (6-15s): Quick-hit moments — one powerful line, a reaction, or a punchy fact. Best for Stories and ads.
+- "short" (15-30s): Compact standalone clips — one idea, one hook, one payoff. Best for YouTube Shorts, Reels.
+- "medium" (30-60s): Standard short-form — complete mini-story with setup and payoff. Best for TikTok, YouTube Shorts.
+- "standard" (60-120s): Deeper dives — full explanation, multi-point argument, or compelling narrative. Best for Twitter/X, LinkedIn.
+- "extended" (120-180s): Long-form excerpts — detailed breakdown, interview segment, or tutorial. Best for YouTube, podcast clips.
+
+Try to select at least one clip from each applicable category when the content supports it. Not every category will be available in every video — skip a category only if the content genuinely doesn't support a quality clip at that length. Prioritize quality over quota, but actively look for opportunities in every category.
+
 TIMING GUIDELINES:
-- Target 20-90 seconds for most clips
-- Use 10-19 seconds only when the moment is exceptionally dense, self-contained, and complete
+- Micro clips (6-15s): Grab ONE punchy moment — a killer one-liner, a surprising fact, or a reaction
+- Short clips (15-30s): One clear idea with a hook and payoff
+- Medium clips (30-60s): Complete mini-story: setup, tension, payoff
+- Standard clips (60-120s): Full explanation or argument with supporting detail
+- Extended clips (120-180s): Deep dive, multi-point discussion, or narrative arc
 - Focus on natural content boundaries rather than arbitrary time limits
-- Include enough context for the segment to be understandable
-- Prefer roughly 25-60 seconds when possible
 - Start at the hook or the minimum setup needed to make the hook land, and end after the payoff
-- If a highlight is only one good line, expand to include the surrounding setup and payoff rather than returning a tiny fragment
+- If a highlight is only one good line, it can be a micro/short clip — don't force-expand it
 - Stop expanding when the topic drifts, the speaker repeats the same point, or the clip loses momentum
 
 TIMESTAMP REQUIREMENTS - EXTREMELY IMPORTANT:
 - Use EXACT timestamps as they appear in the transcript
 - Never modify timestamp format (keep MM:SS structure)
 - start_time MUST be LESS THAN end_time (start_time < end_time)
-- MINIMUM segment duration: 10 seconds (end_time - start_time >= 10 seconds)
-- IDEAL segment duration: 20-90 seconds
+- MINIMUM segment duration: 6 seconds (end_time - start_time >= 6 seconds)
 - Look at transcript ranges like [02:25 - 02:35] and use different start/end times
 - NEVER use the same timestamp for both start_time and end_time
 - Example: start_time: "02:25", end_time: "02:35" (NOT "02:25" and "02:25")
@@ -307,7 +347,7 @@ SCORING AND OUTPUT RULES:
 - virality_reasoning and reasoning should cite what is actually present in the chosen span
 - summary and key_topics must also stay grounded in the transcript and should not add outside interpretation
 
-Find 3-10 compelling segments that would work well as standalone clips. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
+Find 5-15 compelling segments that would work well as standalone clips, spread across different duration categories. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
 
 # Lazy-loaded agent to avoid import-time failures when API keys aren't set
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
@@ -449,10 +489,13 @@ Follow this workflow:
 4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
 
 Selection target:
-- Choose 3-10 segments total.
-- Most selected clips should be 20-90 seconds.
-- Only choose a 10-19 second clip when it already contains a full setup and payoff.
-- If a strong moment is shorter than 20 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
+- Choose 5-15 segments total, spread across different duration categories (micro, short, medium, standard, extended).
+- Try to include at least 1 clip from each duration category when the content supports it.
+- Micro (6-15s): punchy moments, killer one-liners, quick reactions
+- Short (15-30s): one idea with hook and payoff
+- Medium (30-60s): mini-stories with setup, tension, payoff
+- Standard (60-120s): full explanations or arguments
+- Extended (120-180s): deep dives, multi-point narratives
 - Skip weak standalone picks: intros, sponsor reads, CTAs, contextless quotes, repeated points, vague setup, and answer fragments that require prior context.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 
@@ -470,8 +513,9 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics"{', "broll_opportunities"' if include_broll else ''}.
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "duration_category".
 - "hook_title" is a 3-9 word plain-text headline for the clip, grounded in the segment (no hashtags, emojis, or quotes).
+- "duration_category" is one of: "micro", "short", "medium", "standard", "extended".
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".
 - Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds.
 
@@ -756,6 +800,10 @@ async def get_most_relevant_parts_by_transcript(
 
                 segment.hook_title = sanitize_hook_title(segment.hook_title)
 
+                # Auto-assign duration_category if AI didn't provide one
+                if not segment.duration_category or segment.duration_category not in DURATION_CATEGORIES:
+                    segment.duration_category = compute_duration_category(duration)
+
                 validated_segments.append(segment)
                 virality_info = (
                     f", virality={segment.virality.total_score}"
@@ -763,7 +811,7 @@ async def get_most_relevant_parts_by_transcript(
                     else ""
                 )
                 logger.info(
-                    f"Validated segment: {segment.start_time}-{segment.end_time} ({duration}s){virality_info}"
+                    f"Validated segment: {segment.start_time}-{segment.end_time} ({duration}s, {segment.duration_category}){virality_info}"
                 )
 
             except (ValueError, IndexError) as e:
@@ -789,6 +837,14 @@ async def get_most_relevant_parts_by_transcript(
         )
 
         logger.info(f"Selected {len(validated_segments)} segments for processing")
+
+        # Log category distribution
+        cat_dist: dict[str, int] = {}
+        for seg in validated_segments:
+            cat = seg.duration_category or "unknown"
+            cat_dist[cat] = cat_dist.get(cat, 0) + 1
+        logger.info(f"Category distribution: {cat_dist}")
+
         if validated_segments:
             top = validated_segments[0]
             logger.info(

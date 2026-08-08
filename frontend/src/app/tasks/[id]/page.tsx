@@ -71,7 +71,10 @@ const DURATION_CATEGORIES = [
 
 type DurationCategoryId = (typeof DURATION_CATEGORIES)[number]["id"];
 
-function getClipCategoryId(duration: number): DurationCategoryId {
+function getClipCategoryId(duration: number, backendCategory?: string | null): DurationCategoryId {
+  if (backendCategory && DURATION_CATEGORIES.some((c) => c.id === backendCategory)) {
+    return backendCategory as DurationCategoryId;
+  }
   if (duration < 15) return "micro";
   if (duration < 30) return "short";
   if (duration < 60) return "medium";
@@ -79,8 +82,8 @@ function getClipCategoryId(duration: number): DurationCategoryId {
   return "extended";
 }
 
-function getClipCategoryLabel(duration: number): { icon: string; label: string } {
-  const id = getClipCategoryId(duration);
+function getClipCategoryLabel(duration: number, backendCategory?: string | null): { icon: string; label: string } {
+  const id = getClipCategoryId(duration, backendCategory);
   const cat = DURATION_CATEGORIES.find((c) => c.id === id)!;
   return { icon: cat.icon, label: cat.label };
 }
@@ -106,6 +109,7 @@ interface Clip {
   shareability_score: number;
   hook_type: string | null;
   hook_title: string | null;
+  duration_category: string | null;
 }
 
 interface TaskDetails {
@@ -403,7 +407,10 @@ export default function TaskPage() {
   const filteredClips = useMemo(() => {
     const cat = DURATION_CATEGORIES.find((c) => c.id === activeCategoryId);
     if (!cat || cat.id === "all") return clips;
-    return clips.filter((c) => c.duration >= cat.min && c.duration < cat.max);
+    return clips.filter((c) => {
+      const cId = getClipCategoryId(c.duration, c.duration_category);
+      return cId === cat.id;
+    });
   }, [clips, activeCategoryId]);
 
   const categoryCounts = useMemo(() => {
@@ -412,7 +419,7 @@ export default function TaskPage() {
       counts[cat.id] =
         cat.id === "all"
           ? clips.length
-          : clips.filter((c) => c.duration >= cat.min && c.duration < cat.max).length;
+          : clips.filter((c) => getClipCategoryId(c.duration, c.duration_category) === cat.id).length;
     }
     return counts;
   }, [clips]);
@@ -1410,7 +1417,7 @@ export default function TaskPage() {
                             <span>{formatDuration(clip.duration)}</span>
                             <span>•</span>
                             <span className="inline-flex items-center gap-0.5 text-xs bg-gray-100 px-1.5 py-0.5 rounded-full">
-                              {getClipCategoryLabel(clip.duration).icon} {getClipCategoryLabel(clip.duration).label}
+                              {getClipCategoryLabel(clip.duration, clip.duration_category).icon} {getClipCategoryLabel(clip.duration, clip.duration_category).label}
                             </span>
                           </div>
                         </div>

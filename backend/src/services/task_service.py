@@ -313,6 +313,7 @@ class TaskService:
                     shareability_score=clip_info.get("shareability_score", 0),
                     hook_type=clip_info.get("hook_type"),
                     hook_title=clip_info.get("hook_title"),
+                    duration_category=clip_info.get("duration_category"),
                 )
                 await self.db.commit()
                 clip_ids.append(clip_id)
