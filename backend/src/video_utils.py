@@ -43,6 +43,16 @@ EMOJI_FONT_NAME = "Noto Color Emoji"
 CLIP_END_SENTENCE_EXTENSION_SECONDS = 3.0
 CLIP_END_PADDING_SECONDS = 0.35
 SENTENCE_END_RE = re.compile(r"""[.!?]["')\]}]*$""")
+
+
+def _get_safe_temp_dir() -> str:
+    """Return a path to a temp directory on a drive with guaranteed free space."""
+    try:
+        temp_dir_base = get_config().temp_dir
+        Path(temp_dir_base).mkdir(parents=True, exist_ok=True)
+        return str(temp_dir_base)
+    except Exception:
+        return tempfile.gettempdir()
 # Burned-in hook title (AI-written headline shown at the top of the clip while
 # the hook plays out). Long enough to read twice, gone before it feels stale.
 HOOK_TITLE_SECONDS = 4.0
@@ -213,14 +223,10 @@ def get_video_transcript(video_path: Path, speech_model: str = "universal") -> s
     aai.settings.http_timeout = runtime_config.assembly_ai_http_timeout_seconds
     transcriber = aai.Transcriber()
 
-    # Request word-level timestamps for precise subtitle sync
-    speech_model_value = _assemblyai_speech_model_value(speech_model)
-
     config_obj = aai.TranscriptionConfig(
         speaker_labels=True,
         punctuate=True,
         format_text=True,
-        speech_model=speech_model_value,
     )
 
     try:
@@ -876,24 +882,20 @@ def ffprobe_duration(video_path: Path) -> float:
 
 def ffmpeg_escape_filter_path(path: Path) -> str:
     """Escape a path for use inside an ffmpeg filter argument."""
-    return (
-        str(path)
-        .replace("\\", "\\\\")
-        .replace(":", "\\:")
-        .replace("'", "\\'")
-        .replace(" ", "\\ ")
-    )
+    p_str = str(path).replace("\\", "/")
+    p_str = p_str.replace(":", "\\\\:")
+    p_str = p_str.replace("'", "'\\\\''")
+    p_str = p_str.replace(" ", "\\ ")
+    return p_str
 
 
 def ffmpeg_escape_filter_value(value: str) -> str:
     """Escape an ffmpeg filter option value."""
-    return (
-        str(value)
-        .replace("\\", "\\\\")
-        .replace(":", "\\:")
-        .replace("'", "\\'")
-        .replace(" ", "\\ ")
-    )
+    p_str = str(value).replace("\\", "/")
+    p_str = p_str.replace(":", "\\\\:")
+    p_str = p_str.replace("'", "'\\\\''")
+    p_str = p_str.replace(" ", "\\ ")
+    return p_str
 
 
 # --- shared encode quality profile -----------------------------------------
@@ -926,13 +928,19 @@ def build_final_video_encode_args(
     ]
 
 
-def build_audio_output_args(has_audio: bool, loudnorm: bool = True) -> List[str]:
+def build_audio_output_args(has_audio: bool, loudnorm: bool = True, fade_out_start: Optional[float] = None, fade_out_duration: float = 0.5) -> List[str]:
     """Audio encode args (with optional loudness normalisation) or `-an`."""
     if not has_audio:
         return ["-an"]
     args: List[str] = []
+    af_filters = []
     if loudnorm:
-        args += ["-af", LOUDNORM_FILTER]
+        af_filters.append(LOUDNORM_FILTER)
+    if fade_out_start is not None:
+        af_filters.append(f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_duration:.3f}")
+    
+    if af_filters:
+        args += ["-af", ",".join(af_filters)]
     args += ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
     return args
 
@@ -964,7 +972,7 @@ def emoji_rendering_supported() -> bool:
 
     result = False
     try:
-        with tempfile.TemporaryDirectory(prefix="supoclip_emojiprobe_") as probe_dir:
+        with tempfile.TemporaryDirectory(prefix="supoclip_emojiprobe_", dir=_get_safe_temp_dir()) as probe_dir:
             root = Path(probe_dir)
             ass = root / "probe.ass"
             frame = root / "probe.png"
@@ -1910,7 +1918,7 @@ def detect_speaker_reframe_plan(
                 "regions": regions,
             }
 
-        with tempfile.TemporaryDirectory(prefix="supoclip_motion_") as motion_dir:
+        with tempfile.TemporaryDirectory(prefix="supoclip_motion_", dir=_get_safe_temp_dir()) as motion_dir:
             left_motion = Path(motion_dir) / "left.txt"
             right_motion = Path(motion_dir) / "right.txt"
             left = regions["left"]
@@ -2555,21 +2563,29 @@ def render_reframed_clip_ffmpeg(
     """
     width, height = ffprobe_video_size(input_path)
     has_audio = ffprobe_has_audio(input_path)
+    duration = ffprobe_duration(input_path)
+    
+    fade_duration = 0.5
+    fade_out_start = max(0.0, duration - fade_duration)
+    vfade = f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}"
+
     subs = (
         subtitles_filter_fragment(subtitle_ass_path, fonts_dir)
         if subtitle_ass_path
         else None
     )
-    audio_args = build_audio_output_args(has_audio)
+    audio_args = build_audio_output_args(has_audio, fade_out_start=fade_out_start, fade_out_duration=fade_duration)
 
     if output_format == "original":
         out_w, out_h = round_to_even(width), round_to_even(height)
         if not subs:
-            shutil.copyfile(input_path, output_path)
-            return True, out_w, out_h
+            video_filter = vfade
+        else:
+            video_filter = f"{subs},setsar=1,{vfade}"
+            
         command = [
             "ffmpeg", "-y", "-i", str(input_path),
-            "-vf", f"{subs},setsar=1",
+            "-vf", video_filter,
             *build_final_video_encode_args(),
             *audio_args,
             "-movflags", "+faststart",
@@ -2593,7 +2609,7 @@ def render_reframed_clip_ffmpeg(
             f"scale=1080:960:flags=lanczos,setsar=1[lv];"
             f"[r]crop={right['tile_w']}:{right['tile_h']}:{right['tile_x']}:{right['tile_y']},"
             f"scale=1080:960:flags=lanczos,setsar=1[rv];"
-            f"[lv][rv]vstack,setsar=1{vstack_tail}[v]"
+            f"[lv][rv]vstack,setsar=1{vstack_tail},{vfade}[v]"
         )
         command = [
             "ffmpeg", "-y", "-i", str(input_path),
@@ -2613,6 +2629,7 @@ def render_reframed_clip_ffmpeg(
         )
         if subs:
             video_filter = f"{video_filter},{subs}"
+        video_filter = f"{video_filter},{vfade}"
         command = [
             "ffmpeg", "-y", "-i", str(input_path),
             "-vf", video_filter,
@@ -2628,11 +2645,11 @@ def render_reframed_clip_ffmpeg(
     video_filter, mode = build_vertical_filter_plan(input_path, width, height)
     if mode == "complex":
         if subs:
-            graph = f"{video_filter};[vout]{subs}[v]"
+            graph = f"{video_filter};[vout]{subs},{vfade}[v]"
             map_label = "[v]"
         else:
-            graph = video_filter
-            map_label = "[vout]"
+            graph = f"{video_filter};[vout]{vfade}[v]"
+            map_label = "[v]"
         command = [
             "ffmpeg", "-y", "-i", str(input_path),
             "-filter_complex", graph,
@@ -2646,6 +2663,7 @@ def render_reframed_clip_ffmpeg(
 
     if subs:
         video_filter = f"{video_filter},{subs}"
+    video_filter = f"{video_filter},{vfade}"
     command = [
         "ffmpeg", "-y", "-i", str(input_path),
         "-vf", video_filter,
@@ -3201,7 +3219,7 @@ def create_optimized_clip(
             logger.info(f"Successfully created clip (stream copy): {output_path}")
             return True
 
-        with tempfile.TemporaryDirectory(prefix="supoclip_render_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="supoclip_render_", dir=_get_safe_temp_dir()) as temp_dir:
             temp_root = Path(temp_dir)
             source_clip_path = temp_root / "source.mp4"
             final_clip_path = temp_root / "final.mp4"

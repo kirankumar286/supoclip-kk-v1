@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Literal
 import asyncio
 import logging
+import os
 import re
 
 from pydantic_ai import Agent
@@ -19,10 +20,10 @@ from .runtime_settings import apply_settings_to_process_env
 
 logger = logging.getLogger(__name__)
 
-IDEAL_CLIP_MIN_SECONDS = 25
-IDEAL_CLIP_MAX_SECONDS = 50
-MIN_ACCEPTED_CLIP_SECONDS = 15
-MAX_ACCEPTED_CLIP_SECONDS = 60
+IDEAL_CLIP_MIN_SECONDS = int(os.getenv("IDEAL_CLIP_MIN_SECONDS", "20"))
+IDEAL_CLIP_MAX_SECONDS = int(os.getenv("IDEAL_CLIP_MAX_SECONDS", "90"))
+MIN_ACCEPTED_CLIP_SECONDS = int(os.getenv("MIN_ACCEPTED_CLIP_SECONDS", "10"))
+MAX_ACCEPTED_CLIP_SECONDS = int(os.getenv("MAX_ACCEPTED_CLIP_SECONDS", "120"))
 TRANSCRIPT_ANALYSIS_CACHE_VERSION = "hook-titles-v4"
 HOOK_TITLE_MAX_CHARS = 64
 HOOK_TITLE_MAX_WORDS = 10
@@ -189,7 +190,7 @@ OUTPUT CONTRACT:
 - Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
-- Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
+- Every returned segment must be 10-120 seconds long. Prefer 20-90 seconds.
 
 CORE OBJECTIVES:
 1. Identify segments that would be compelling on social media platforms
@@ -281,12 +282,11 @@ Identify 2-4 moments in each segment where B-roll footage could enhance the vide
 - Use simple, searchable keywords (e.g., "coffee shop", "laptop coding", "money stack")
 
 TIMING GUIDELINES:
-- Target 25-50 seconds for most clips
-- Use 15-24 seconds only when the moment is exceptionally dense, self-contained, and complete
-- CRITICAL: start_time MUST be different from end_time (minimum 15 seconds apart)
+- Target 20-90 seconds for most clips
+- Use 10-19 seconds only when the moment is exceptionally dense, self-contained, and complete
 - Focus on natural content boundaries rather than arbitrary time limits
 - Include enough context for the segment to be understandable
-- Prefer roughly 30-50 seconds when possible
+- Prefer roughly 25-60 seconds when possible
 - Start at the hook or the minimum setup needed to make the hook land, and end after the payoff
 - If a highlight is only one good line, expand to include the surrounding setup and payoff rather than returning a tiny fragment
 - Stop expanding when the topic drifts, the speaker repeats the same point, or the clip loses momentum
@@ -295,8 +295,8 @@ TIMESTAMP REQUIREMENTS - EXTREMELY IMPORTANT:
 - Use EXACT timestamps as they appear in the transcript
 - Never modify timestamp format (keep MM:SS structure)
 - start_time MUST be LESS THAN end_time (start_time < end_time)
-- MINIMUM segment duration: 15 seconds (end_time - start_time >= 15 seconds)
-- IDEAL segment duration: 25-50 seconds
+- MINIMUM segment duration: 10 seconds (end_time - start_time >= 10 seconds)
+- IDEAL segment duration: 20-90 seconds
 - Look at transcript ranges like [02:25 - 02:35] and use different start/end times
 - NEVER use the same timestamp for both start_time and end_time
 - Example: start_time: "02:25", end_time: "02:35" (NOT "02:25" and "02:25")
@@ -307,7 +307,7 @@ SCORING AND OUTPUT RULES:
 - virality_reasoning and reasoning should cite what is actually present in the chosen span
 - summary and key_topics must also stay grounded in the transcript and should not add outside interpretation
 
-Find 2-5 compelling segments that would work well as standalone clips. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
+Find 3-10 compelling segments that would work well as standalone clips. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
 
 # Lazy-loaded agent to avoid import-time failures when API keys aren't set
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
@@ -449,10 +449,10 @@ Follow this workflow:
 4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
 
 Selection target:
-- Choose 2-5 segments total.
-- Most selected clips should be 25-50 seconds.
-- Only choose a 15-24 second clip when it already contains a full setup and payoff.
-- If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
+- Choose 3-10 segments total.
+- Most selected clips should be 20-90 seconds.
+- Only choose a 10-19 second clip when it already contains a full setup and payoff.
+- If a strong moment is shorter than 20 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
 - Skip weak standalone picks: intros, sponsor reads, CTAs, contextless quotes, repeated points, vague setup, and answer fragments that require prior context.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 

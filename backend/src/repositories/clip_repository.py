@@ -35,22 +35,25 @@ class ClipRepository:
         hook_title: Optional[str] = None,
     ) -> str:
         """Create a new clip record and return its ID."""
+        import uuid
+        clip_id = str(uuid.uuid4())
         try:
             result = await db.execute(
                 sa_text("""
                     INSERT INTO generated_clips
-                    (task_id, filename, file_path, start_time, end_time, duration,
+                    (id, task_id, filename, file_path, start_time, end_time, duration,
                      text, relevance_score, reasoning, clip_order,
                      virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
                      hook_title, created_at)
                     VALUES
-                    (:task_id, :filename, :file_path, :start_time, :end_time, :duration,
+                    (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
                      :text, :relevance_score, :reasoning, :clip_order,
                      :virality_score, :hook_score, :engagement_score, :value_score, :shareability_score, :hook_type,
                      :hook_title, NOW())
                     RETURNING id
                 """),
                 {
+                    "id": clip_id,
                     "task_id": task_id,
                     "filename": filename,
                     "file_path": file_path,
@@ -75,14 +78,15 @@ class ClipRepository:
             result = await db.execute(
                 sa_text("""
                     INSERT INTO generated_clips
-                    (task_id, filename, file_path, start_time, end_time, duration,
+                    (id, task_id, filename, file_path, start_time, end_time, duration,
                      text, relevance_score, reasoning, clip_order, created_at)
                     VALUES
-                    (:task_id, :filename, :file_path, :start_time, :end_time, :duration,
+                    (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
                      :text, :relevance_score, :reasoning, :clip_order, NOW())
                     RETURNING id
                 """),
                 {
+                    "id": clip_id,
                     "task_id": task_id,
                     "filename": filename,
                     "file_path": file_path,

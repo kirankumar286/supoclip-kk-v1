@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,31 @@ import Link from "next/link";
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
+
+const DURATION_CATEGORIES = [
+  { id: "all", label: "All Clips", icon: "🎬", min: 0, max: Infinity },
+  { id: "micro", label: "Micro", range: "< 15s", icon: "⚡", min: 0, max: 15, platform: "Stories" },
+  { id: "short", label: "Short", range: "15–30s", icon: "🔥", min: 15, max: 30, platform: "Shorts / Reels" },
+  { id: "medium", label: "Medium", range: "30–60s", icon: "🎯", min: 30, max: 60, platform: "TikTok / Shorts" },
+  { id: "standard", label: "Standard", range: "1–2 min", icon: "📺", min: 60, max: 120, platform: "Twitter / LinkedIn" },
+  { id: "extended", label: "Extended", range: "2+ min", icon: "🎥", min: 120, max: Infinity, platform: "YouTube / Podcasts" },
+] as const;
+
+type DurationCategoryId = (typeof DURATION_CATEGORIES)[number]["id"];
+
+function getClipCategoryId(duration: number): DurationCategoryId {
+  if (duration < 15) return "micro";
+  if (duration < 30) return "short";
+  if (duration < 60) return "medium";
+  if (duration < 120) return "standard";
+  return "extended";
+}
+
+function getClipCategoryLabel(duration: number): { icon: string; label: string } {
+  const id = getClipCategoryId(duration);
+  const cat = DURATION_CATEGORIES.find((c) => c.id === id)!;
+  return { icon: cat.icon, label: cat.label };
+}
 
 interface Clip {
   id: string;
@@ -130,6 +155,7 @@ export default function TaskPage() {
   const [captionPosition, setCaptionPosition] = useState("bottom");
   const [highlightWords, setHighlightWords] = useState("");
   const [exportPreset, setExportPreset] = useState("original");
+  const [activeCategoryId, setActiveCategoryId] = useState<DurationCategoryId>("all");
   const [shareState, setShareState] = useState<"idle" | "copying" | "copied">("idle");
   const [isRevokingShare, setIsRevokingShare] = useState(false);
 
@@ -372,6 +398,24 @@ export default function TaskPage() {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
+
+  // --- Duration category filtering ---
+  const filteredClips = useMemo(() => {
+    const cat = DURATION_CATEGORIES.find((c) => c.id === activeCategoryId);
+    if (!cat || cat.id === "all") return clips;
+    return clips.filter((c) => c.duration >= cat.min && c.duration < cat.max);
+  }, [clips, activeCategoryId]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const cat of DURATION_CATEGORIES) {
+      counts[cat.id] =
+        cat.id === "all"
+          ? clips.length
+          : clips.filter((c) => c.duration >= cat.min && c.duration < cat.max).length;
+    }
+    return counts;
+  }, [clips]);
 
   const getScoreColor = (score: number) => {
     if (score >= 0.8) return "bg-green-100 text-green-800";
@@ -1102,6 +1146,54 @@ export default function TaskPage() {
               )}
             </div>
 
+            {/* Duration Category Filter Bar */}
+            <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
+              {DURATION_CATEGORIES.map((cat) => {
+                const count = categoryCounts[cat.id] ?? 0;
+                const isActive = activeCategoryId === cat.id;
+                const isEmpty = count === 0 && cat.id !== "all";
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveCategoryId(cat.id)}
+                    disabled={isEmpty}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all border ${
+                      isActive
+                        ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
+                        : isEmpty
+                          ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                          : "bg-white text-gray-700 border-gray-200 hover:border-gray-400 hover:shadow-sm"
+                    }`}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{cat.label}</span>
+                    {"range" in cat && <span className="text-xs opacity-60">{cat.range}</span>}
+                    <span
+                      className={`ml-0.5 text-xs rounded-full px-1.5 py-0.5 ${
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : isEmpty
+                            ? "bg-gray-100 text-gray-300"
+                            : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Platform hint for active category */}
+            {activeCategoryId !== "all" && (() => {
+              const cat = DURATION_CATEGORIES.find((c) => c.id === activeCategoryId);
+              return cat && "platform" in cat ? (
+                <p className="text-xs text-gray-400 -mt-3">
+                  Best for: {cat.platform}
+                </p>
+              ) : null;
+            })()}
+
             <Sheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen}>
               <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
                 <SheetHeader>
@@ -1277,7 +1369,14 @@ export default function TaskPage() {
               </SheetContent>
             </Sheet>
 
-            {clips.map((clip) => (
+            {filteredClips.length === 0 && activeCategoryId !== "all" && (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-lg mb-1">No clips in this category</p>
+                <p className="text-sm">Try selecting a different duration range above.</p>
+              </div>
+            )}
+
+            {filteredClips.map((clip) => (
               <Card key={clip.id} className="overflow-hidden">
                 <CardContent className="p-0">
                   <div className="flex flex-col lg:flex-row">
@@ -1309,6 +1408,10 @@ export default function TaskPage() {
                             </span>
                             <span>•</span>
                             <span>{formatDuration(clip.duration)}</span>
+                            <span>•</span>
+                            <span className="inline-flex items-center gap-0.5 text-xs bg-gray-100 px-1.5 py-0.5 rounded-full">
+                              {getClipCategoryLabel(clip.duration).icon} {getClipCategoryLabel(clip.duration).label}
+                            </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">

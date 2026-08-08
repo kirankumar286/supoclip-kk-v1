@@ -99,7 +99,7 @@ export default function RootLayout({
           </>
         ) : null}
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} antialiased`}>
+      <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} antialiased`}>
         <TooltipProvider>
           {children}
           <DataFastIdentity />

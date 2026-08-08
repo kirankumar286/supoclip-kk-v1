@@ -42,7 +42,13 @@ def _safe_name(prefix: str) -> str:
 
 
 def _run(command: list[str]) -> None:
-    subprocess.run(command, check=True, capture_output=True, text=True)
+    logger.debug(f"Running command: {' '.join(command)}")
+    result = subprocess.run(
+        command, capture_output=True, text=True, check=False, encoding="utf-8"
+    )
+    if result.returncode != 0:
+        logger.error(f"FFmpeg stderr: {result.stderr}")
+        raise RuntimeError(f"FFmpeg failed with return code {result.returncode}")
 
 
 def _ffprobe_duration(path: Path) -> float:
@@ -137,13 +143,11 @@ def _escape_ass_text(value: str) -> str:
 
 
 def _escape_filter_path(path: Path) -> str:
-    return (
-        str(path)
-        .replace("\\", "\\\\")
-        .replace(":", "\\:")
-        .replace("'", "\\'")
-        .replace(" ", "\\ ")
-    )
+    p_str = str(path).replace("\\", "/")
+    p_str = p_str.replace(":", "\\\\:")
+    p_str = p_str.replace("'", "'\\\\''")
+    p_str = p_str.replace(" ", "\\ ")
+    return p_str
 
 
 def trim_clip_file(

@@ -31,18 +31,27 @@ class Base(DeclarativeBase):
 
 
 def _build_engine(database_url: str) -> AsyncEngine:
+    pool_size = int(os.getenv("DB_POOL_SIZE", "20"))
+    max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "40"))
+    pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "60"))
     return create_async_engine(
         database_url,
         echo=False,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=pool_timeout,
         pool_pre_ping=True,
         pool_recycle=3600,
     )
 
 
 def get_database_url() -> str:
-    return _database_url_override or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    url = _database_url_override or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if "sslmode=" in url:
+        url = url.replace("sslmode=", "ssl=")
+    return url
 
 
 def configure_database(

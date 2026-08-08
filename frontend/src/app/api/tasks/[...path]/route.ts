@@ -39,6 +39,7 @@ async function proxyTaskRequest(
     },
     body,
     cache: "no-store",
+    signal: request.signal,
   });
 
   return createProxyResponse(upstream);
