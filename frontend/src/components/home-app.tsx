@@ -219,6 +219,7 @@ export default function HomeApp() {
   const [removeFillerWords, setRemoveFillerWords] = useState(false);
   const [filteredWords, setFilteredWords] = useState("");
   const [includeBRoll, setIncludeBRoll] = useState(false);
+  const [processingMode, setProcessingMode] = useState<"fast" | "balanced">("fast");
 
   // Latest task state
   const [latestTask, setLatestTask] = useState<LatestTask | null>(null);
@@ -499,7 +500,7 @@ export default function HomeApp() {
           },
           font_options: fontOptions,
           caption_template: captionTemplate,
-          processing_mode: "fast",
+          processing_mode: processingMode,
           output_format: outputFormat,
           add_subtitles: addSubtitles,
           cut_long_pauses: cutLongPauses,
@@ -529,7 +530,7 @@ export default function HomeApp() {
         pause_threshold_ms: normalizedPauseThreshold,
         remove_filler_words: removeFillerWords,
         filtered_words: normalizedFilteredWords,
-        processing_mode: "fast",
+        processing_mode: processingMode,
         include_broll: includeBRoll,
       });
       // Redirect immediately to the task page
@@ -1048,6 +1049,49 @@ export default function HomeApp() {
                       onCheckedChange={setIncludeBRoll}
                       disabled={generationControlsDisabled}
                     />
+                  </div>
+
+                  {/* Generation Mode */}
+                  <div className="p-3 border rounded-lg bg-stone-50 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="w-4 h-4 text-violet-500" />
+                      <div>
+                        <h3 className="text-sm font-medium text-stone-900">Generation Mode</h3>
+                        <p className="text-xs text-stone-500">
+                          {processingMode === "fast"
+                            ? "Quick analysis — great for most videos"
+                            : "Deep scan — more clips, better quality, takes longer"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        id="generation-mode-fast"
+                        onClick={() => setProcessingMode("fast")}
+                        disabled={generationControlsDisabled}
+                        className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all border ${
+                          processingMode === "fast"
+                            ? "bg-stone-900 text-white border-stone-900"
+                            : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        ⚡ Fast
+                      </button>
+                      <button
+                        type="button"
+                        id="generation-mode-max"
+                        onClick={() => setProcessingMode("balanced")}
+                        disabled={generationControlsDisabled}
+                        className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all border ${
+                          processingMode === "balanced"
+                            ? "bg-violet-600 text-white border-violet-600"
+                            : "bg-white text-stone-600 border-stone-200 hover:border-violet-400"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        🎯 Max Clips
+                      </button>
+                    </div>
                   </div>
 
                   <div className="rounded-lg border bg-stone-50 p-3 space-y-3">

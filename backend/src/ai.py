@@ -347,7 +347,19 @@ SCORING AND OUTPUT RULES:
 - virality_reasoning and reasoning should cite what is actually present in the chosen span
 - summary and key_topics must also stay grounded in the transcript and should not add outside interpretation
 
-Find as many compelling segments as possible (from 5 up to 30 or more for longer videos) that would work well as standalone clips, spread across different duration categories. Quality over quantity: choose fewer stronger segments over filling a quota, but don't artificially restrict the number of excellent clips. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
+Find as many compelling segments as possible (from 5 up to 30 or more for longer videos) that would work well as standalone clips, spread across different duration categories. Quality over quantity: choose fewer stronger segments over filling a quota, but don't artificially restrict the number of excellent clips. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics.
+
+CLIP QUANTITY RULES — CRITICAL:
+- Do NOT set a cap on how many clips you return. If a 1-hour video has 25 great moments, return all 25.
+- For videos under 10 minutes: aim for at least 5 clips.
+- For videos 10-30 minutes: aim for 8-15 clips.
+- For videos 30-60 minutes: aim for 12-25 clips.
+- For videos over 60 minutes: aim for 20+ clips.
+- Scan the entire transcript from start to finish. Do not stop scanning after finding a few clips.
+- Every format bucket (micro, short, medium, standard, extended) should have at least 1 clip if the content supports it.
+- The goal is to saturate the output with every clip-worthy moment, not to pick only the absolute best few."""
+
+
 
 # Lazy-loaded agent to avoid import-time failures when API keys aren't set
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
@@ -489,7 +501,9 @@ Follow this workflow:
 4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
 
 - Choose as many segments as possible (from 5 up to 30 or more for longer videos) that would work well as standalone clips, spread across different duration categories (micro, short, medium, standard, extended).
+- IMPORTANT: Do NOT cap or limit the number of clips you return. More clips = better. If the video is long, return 20-30+ clips.
 - Do not artificially limit or cap the number of excellent clips you identify.
+- Scan the ENTIRE transcript from beginning to end before finalizing your output.
 - Try to include at least 1 clip from each duration category when the content supports it.
 - Micro (6-15s): punchy moments, killer one-liners, quick reactions
 - Short (15-30s): one idea with hook and payoff
