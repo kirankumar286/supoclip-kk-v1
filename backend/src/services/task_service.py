@@ -348,6 +348,11 @@ class TaskService:
                         continue
 
                     # Save to DB immediately
+                    social_metadata = await self._generate_clip_social_metadata(
+                        clip_info.get("text", ""),
+                        hook_title=clip_info.get("hook_title")
+                    )
+
                     clip_id = await self.clip_repo.create_clip(
                         self.db,
                         task_id=task_id,
@@ -368,6 +373,7 @@ class TaskService:
                         hook_type=clip_info.get("hook_type"),
                         hook_title=clip_info.get("hook_title"),
                         duration_category=clip_info.get("duration_category"),
+                        social_metadata=social_metadata,
                     )
                     await self.db.commit()
                     clip_ids.append(clip_id)
@@ -550,6 +556,17 @@ class TaskService:
 
         return task
 
+    async def _generate_clip_social_metadata(self, text: str, hook_title: Optional[str] = None) -> Optional[str]:
+        if not text or not text.strip():
+            return None
+        try:
+            from ..ai import generate_social_media_pack
+            social_pack = await generate_social_media_pack(text, hook_title)
+            return social_pack.model_dump_json()
+        except Exception as e:
+            logger.error(f"Error generating social media pack: {e}")
+            return None
+
     async def get_user_tasks(
         self, user_id: str, limit: int = 50
     ) -> list[Dict[str, Any]]:
@@ -710,6 +727,10 @@ class TaskService:
 
         clip_ids = []
         for i, clip_info in enumerate(clips_info):
+            social_metadata = await self._generate_clip_social_metadata(
+                clip_info.get("text") or "",
+                hook_title=clip_info.get("hook_title")
+            )
             clip_id = await self.clip_repo.create_clip(
                 self.db,
                 task_id=task_id,
@@ -730,6 +751,7 @@ class TaskService:
                 shareability_score=clip_info.get("shareability_score", 0),
                 hook_type=clip_info.get("hook_type"),
                 hook_title=clip_info.get("hook_title"),
+                social_metadata=social_metadata,
             )
             clip_ids.append(clip_id)
 
@@ -804,6 +826,15 @@ class TaskService:
         first_duration = max(0.1, total_source_duration(first_ranges))
         second_duration = max(0.1, total_source_duration(second_ranges))
 
+        first_social = await self._generate_clip_social_metadata(
+            clip.get("text") or "",
+            hook_title=clip.get("hook_title")
+        )
+        second_social = await self._generate_clip_social_metadata(
+            clip.get("text") or "",
+            hook_title=clip.get("hook_title")
+        )
+
         await self.clip_repo.update_clip(
             self.db,
             clip_id,
@@ -813,6 +844,7 @@ class TaskService:
             self._seconds_to_mmss(first_bounds[1]),
             first_duration,
             clip.get("text") or "",
+            social_metadata=first_social,
         )
 
         await self.clip_repo.create_clip(
@@ -834,6 +866,7 @@ class TaskService:
             shareability_score=clip.get("shareability_score", 0),
             hook_type=clip.get("hook_type"),
             hook_title=clip.get("hook_title"),
+            social_metadata=second_social,
         )
 
         await self.clip_repo.reorder_task_clips(self.db, task_id)

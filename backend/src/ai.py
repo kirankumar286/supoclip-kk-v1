@@ -861,3 +861,94 @@ async def get_most_relevant_parts_by_transcript(
 def get_most_relevant_parts_sync(transcript: str) -> TranscriptAnalysis:
     """Synchronous wrapper for the async function."""
     return asyncio.run(get_most_relevant_parts_by_transcript(transcript))
+
+
+class PlatformMetadata(BaseModel):
+    title: str = Field(description="Suggested punchy, highly-optimized title for this specific platform (3-10 words)")
+    description: str = Field(description="Engaging caption or description text tailored for this platform's format and audience")
+    hashtags: List[str] = Field(description="3 to 7 highly relevant, high-traffic hashtags (without the leading '#' sign)")
+
+
+class SocialMediaPack(BaseModel):
+    youtube: PlatformMetadata = Field(description="Optimized for YouTube Shorts or long-form video")
+    tiktok: PlatformMetadata = Field(description="Optimized for TikTok's trends and fast-paced style")
+    instagram: PlatformMetadata = Field(description="Optimized for Instagram Reels' style and captions")
+    facebook: PlatformMetadata = Field(description="Optimized for Facebook Reels or feed videos")
+
+
+social_media_system_prompt = """You are a world-class social media strategist and copywriting expert.
+Your job is to generate a 'Social Media Post Pack' for a video clip based on its transcript text and the on-screen headline hook.
+You will write highly optimized titles, captions/descriptions, and hashtags tailored for YouTube (Shorts), TikTok, Instagram (Reels), and Facebook.
+
+Format the output strictly as JSON matching the requested schema. Do not output markdown, explanations, or commentary outside the JSON object."""
+
+_social_agent: Optional[Agent[None, SocialMediaPack]] = None
+_social_agent_signature = None
+
+
+def get_social_agent() -> Agent[None, SocialMediaPack]:
+    """Get or create the social media copywriter agent (lazy initialization)."""
+    global _social_agent, _social_agent_signature
+    runtime_config = get_config()
+    signature = (
+        runtime_config.llm,
+        runtime_config.openai_api_key,
+        runtime_config.google_api_key,
+        runtime_config.anthropic_api_key,
+        runtime_config.ollama_base_url,
+        runtime_config.ollama_api_key,
+    )
+    if _social_agent is None or _social_agent_signature != signature:
+        apply_settings_to_process_env(runtime_config.as_runtime_settings())
+        config_error = _get_missing_llm_key_error(runtime_config.llm, runtime_config)
+        if config_error:
+            raise RuntimeError(config_error)
+
+        _social_agent = Agent[None, SocialMediaPack](
+            model=_build_transcript_model(runtime_config),
+            output_type=SocialMediaPack,
+            system_prompt=social_media_system_prompt,
+            output_retries=2,
+        )
+        _social_agent_signature = signature
+    return _social_agent
+
+
+async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] = None) -> SocialMediaPack:
+    """Generate social media sharing templates for a clip's transcript."""
+    logger.info("Generating social media post pack for clip")
+    if not clip_text or not clip_text.strip():
+        # Return an empty pack if no text
+        empty_platform = PlatformMetadata(title="", description="", hashtags=[])
+        return SocialMediaPack(
+            youtube=empty_platform,
+            tiktok=empty_platform,
+            instagram=empty_platform,
+            facebook=empty_platform
+        )
+
+    try:
+        agent = get_social_agent()
+        
+        prompt = f"Clip Transcript:\n{clip_text}"
+        if hook_title:
+            prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
+            
+        prompt += "\n\nGenerate the platform-optimized titles, captions/descriptions, and hashtags for YouTube, TikTok, Instagram, and Facebook."
+        
+        result = await agent.run(prompt)
+        return result.output
+    except Exception as e:
+        logger.error(f"Failed to generate social media pack: {e}")
+        # Fallback to empty/placeholder structures
+        placeholder = PlatformMetadata(
+            title=hook_title or "Viral Clip",
+            description=clip_text[:150] + "..." if len(clip_text) > 150 else clip_text,
+            hashtags=["viral", "clips", "supoclip"]
+        )
+        return SocialMediaPack(
+            youtube=placeholder,
+            tiktok=placeholder,
+            instagram=placeholder,
+            facebook=placeholder
+        )

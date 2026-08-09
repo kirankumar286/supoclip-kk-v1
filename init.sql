@@ -101,6 +101,7 @@ CREATE TABLE generated_clips (
     hook_type VARCHAR(50),
     hook_title VARCHAR(200),         -- AI-written on-screen headline
     duration_category VARCHAR(20),   -- micro, short, medium, standard, extended
+    social_metadata TEXT,            -- JSON string containing platform upload templates (titles, description, hashtags)
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

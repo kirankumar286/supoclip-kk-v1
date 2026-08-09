@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Download, Sparkles, Star, Zap } from "lucide-react";
+import { AlertCircle, Download, Sparkles, Star, Zap, Check, Share2 } from "lucide-react";
 
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
@@ -26,6 +26,12 @@ interface SharedClip {
   clip_order: number;
   virality_score: number;
   hook_title: string | null;
+  social_metadata?: {
+    youtube?: { title: string; description: string; hashtags: string[] };
+    tiktok?: { title: string; description: string; hashtags: string[] };
+    instagram?: { title: string; description: string; hashtags: string[] };
+    facebook?: { title: string; description: string; hashtags: string[] };
+  } | null;
 }
 
 interface SharedTask {
@@ -42,6 +48,157 @@ function formatDuration(seconds: number) {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
+
+interface SocialMetadataPackViewerProps {
+  socialMetadata: {
+    youtube?: { title: string; description: string; hashtags: string[] };
+    tiktok?: { title: string; description: string; hashtags: string[] };
+    instagram?: { title: string; description: string; hashtags: string[] };
+    facebook?: { title: string; description: string; hashtags: string[] };
+  };
+}
+
+const SocialMetadataPackViewer: React.FC<SocialMetadataPackViewerProps> = ({ socialMetadata }) => {
+  const [activeTab, setActiveTab] = useState<"youtube" | "tiktok" | "instagram" | "facebook">("youtube");
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  if (!socialMetadata) return null;
+
+  const currentPack = socialMetadata[activeTab];
+
+  const handleCopy = (text: string, fieldKey: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(`${activeTab}-${fieldKey}`);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const platforms = [
+    { id: "youtube", label: "YouTube Shorts", icon: "🔴" },
+    { id: "tiktok", label: "TikTok", icon: "🎵" },
+    { id: "instagram", label: "Instagram", icon: "📸" },
+    { id: "facebook", label: "Facebook", icon: "👥" },
+  ] as const;
+
+  return (
+    <div className="mt-4 p-4 border border-neutral-100 rounded-xl bg-neutral-50/50 space-y-4">
+      <div className="flex items-center justify-between border-b pb-2">
+        <h4 className="font-semibold text-sm text-neutral-800 flex items-center gap-1.5">
+          <span>🚀</span> Social Upload Pack
+        </h4>
+        <span className="text-[10px] bg-neutral-200 text-neutral-600 px-2 py-0.5 rounded-full font-medium">AI-Generated</span>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-1.5">
+        {platforms.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setActiveTab(p.id)}
+            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+              activeTab === p.id
+                ? "bg-black text-white shadow-sm"
+                : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200/60"
+            }`}
+          >
+            <span>{p.icon}</span>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content Pack */}
+      {currentPack ? (
+        <div className="space-y-3 bg-white p-3 rounded-lg border border-neutral-100/80">
+          {/* Title */}
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Optimized Title</span>
+              <button
+                onClick={() => handleCopy(currentPack.title, "title")}
+                className="text-xs text-neutral-500 hover:text-black flex items-center gap-1 transition-colors"
+              >
+                {copiedField === `${activeTab}-title` ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-600" />
+                    <span className="text-green-600 font-medium">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-sm font-semibold text-neutral-900 leading-relaxed pr-8">
+              {currentPack.title || "No title generated"}
+            </p>
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1 border-t pt-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Caption / Description</span>
+              <button
+                onClick={() => handleCopy(currentPack.description, "description")}
+                className="text-xs text-neutral-500 hover:text-black flex items-center gap-1 transition-colors"
+              >
+                {copiedField === `${activeTab}-description` ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-600" />
+                    <span className="text-green-600 font-medium">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-neutral-700 whitespace-pre-wrap leading-relaxed pr-8">
+              {currentPack.description || "No description generated"}
+            </p>
+          </div>
+
+          {/* Hashtags */}
+          {currentPack.hashtags && currentPack.hashtags.length > 0 && (
+            <div className="space-y-1.5 border-t pt-2.5">
+              <div className="flex justify-between items-center">
+                <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Recommended Hashtags</span>
+                <button
+                  onClick={() => handleCopy(currentPack.hashtags.map(h => `#${h}`).join(" "), "hashtags")}
+                  className="text-xs text-neutral-500 hover:text-black flex items-center gap-1 transition-colors"
+                >
+                  {copiedField === `${activeTab}-hashtags` ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-green-600" />
+                      <span className="text-green-600 font-medium">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Copy All</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {currentPack.hashtags.map((h, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px] bg-neutral-50 text-neutral-600 font-medium px-2 py-0.5">
+                    #{h}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-neutral-400 italic">No post pack generated for this platform.</p>
+      )}
+    </div>
+  );
+};
 
 export default function SharedGenerationPage() {
   const params = useParams<{ token: string }>();
@@ -164,6 +321,10 @@ export default function SharedGenerationPage() {
                     </div>
 
                     {clip.text ? <TranscriptPreview text={clip.text} clipTitle={clip.hook_title} /> : null}
+
+                    {clip.social_metadata && (
+                      <SocialMetadataPackViewer socialMetadata={clip.social_metadata} />
+                    )}
 
                     <div className="mt-auto pt-5">
                       <Button asChild variant="outline">
