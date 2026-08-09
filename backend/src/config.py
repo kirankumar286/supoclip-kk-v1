@@ -51,8 +51,9 @@ class Config:
         self.max_video_duration = int(os.getenv("MAX_VIDEO_DURATION", "7200"))
         self.output_dir = os.getenv("OUTPUT_DIR", "outputs")
 
-        self.max_clips = int(os.getenv("MAX_CLIPS", "50"))
-        self.clip_duration = int(os.getenv("CLIP_DURATION", "30"))  # seconds
+        # 0 = unlimited (generate every clip the AI identifies)
+        self.max_clips = int(os.getenv("MAX_CLIPS", "0"))
+        self.clip_duration = int(os.getenv("CLIP_DURATION", "30"))  # fallback clip length (seconds)
 
         self.temp_dir = os.getenv("TEMP_DIR", "temp")
 
@@ -97,7 +98,8 @@ class Config:
         self.discord_feedback_webhook_url = self._get_optional_env("DISCORD_FEEDBACK_WEBHOOK_URL")
         self.discord_sales_webhook_url = self._get_optional_env("DISCORD_SALES_WEBHOOK_URL")
         self.default_processing_mode = os.getenv("DEFAULT_PROCESSING_MODE", "fast")
-        self.fast_mode_max_clips = int(os.getenv("FAST_MODE_MAX_CLIPS", "30"))
+        # 0 = unlimited for fast mode too
+        self.fast_mode_max_clips = int(os.getenv("FAST_MODE_MAX_CLIPS", "0"))
         self.fast_mode_transcript_model = os.getenv(
             "FAST_MODE_TRANSCRIPT_MODEL", "universal"
         )
