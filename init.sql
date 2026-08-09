@@ -72,6 +72,7 @@ CREATE TABLE tasks (
     completion_notification_sent_at TIMESTAMP WITH TIME ZONE,
     share_token VARCHAR(64),
     share_enabled BOOLEAN NOT NULL DEFAULT false,
+    proposed_clips TEXT,  -- JSON string of proposed clips for user review
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

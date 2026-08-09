@@ -152,41 +152,19 @@ class TaskService:
         should_cancel: Optional[Callable] = None,
         clip_ready_callback: Optional[Callable] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        render_only: bool = False,
+        selected_indexes: Optional[list[int]] = None,
     ) -> Dict[str, Any]:
         """
         Process a task: download video, analyze, create clips.
-        Returns processing results.
+        If render_only is False, it will perform analysis and save proposed segments, then pause for review.
+        If render_only is True, it will render the selected clips.
         """
         try:
-            logger.info(f"Starting processing for task {task_id}")
+            logger.info(f"Starting processing for task {task_id} (render_only={render_only})")
             started_at = datetime.utcnow()
             stage_timings: Dict[str, float] = {}
             cache_key = self._build_cache_key(url, source_type, processing_mode)
-
-            cache_entry = await self.cache_repo.get_cache(self.db, cache_key)
-            cached_transcript = (
-                cache_entry.get("transcript_text") if cache_entry else None
-            )
-            cached_analysis_json = (
-                cache_entry.get("analysis_json") if cache_entry else None
-            )
-            cache_hit = bool(cached_transcript and cached_analysis_json)
-
-            await self.task_repo.update_task_runtime_metadata(
-                self.db,
-                task_id,
-                started_at=started_at,
-                cache_hit=cache_hit,
-            )
-
-            # Update status to processing
-            await self.task_repo.update_task_status(
-                self.db,
-                task_id,
-                "processing",
-                progress=0,
-                progress_message="Starting...",
-            )
 
             # Progress callback wrapper
             async def update_progress(
@@ -202,35 +180,65 @@ class TaskService:
                 if progress_callback:
                     await progress_callback(progress, message, status)
 
-            # Process video with progress updates
-            pipeline_start = perf_counter()
-            result = await self.video_service.process_video_complete(
-                url=url,
-                source_type=source_type,
-                task_id=task_id,
-                font_family=font_family,
-                font_size=font_size,
-                font_color=font_color,
-                caption_template=caption_template,
-                processing_mode=processing_mode,
-                output_format=output_format,
-                add_subtitles=add_subtitles,
-                cached_transcript=cached_transcript,
-                cached_analysis_json=cached_analysis_json,
-                progress_callback=update_progress,
-                should_cancel=should_cancel,
-            )
-            stage_timings["pipeline_seconds"] = round(
-                perf_counter() - pipeline_start, 3
-            )
+            if not render_only:
+                # ----------------------------------------------------
+                # PHASE 1: ANALYSIS ONLY
+                # ----------------------------------------------------
+                task_record = await self.task_repo.get_task_by_id(self.db, task_id)
+                include_broll = bool(task_record.get("include_broll", False)) if task_record else False
 
-            normalized_cleanup_settings = normalize_clip_cleanup_settings(
-                **(cleanup_settings or {})
-            )
+                cache_entry = await self.cache_repo.get_cache(self.db, cache_key)
+                cached_transcript = (
+                    cache_entry.get("transcript_text") if cache_entry else None
+                )
+                cached_analysis_json = (
+                    cache_entry.get("analysis_json") if cache_entry else None
+                )
+                if cached_analysis_json and include_broll:
+                    try:
+                        cached_analysis = json.loads(cached_analysis_json)
+                        if not cached_analysis.get("include_broll", False):
+                            logger.info("Cached analysis was generated without B-roll but include_broll is True. Clearing cached analysis to trigger re-analysis.")
+                            cached_analysis_json = None
+                    except Exception as e:
+                        logger.warning(f"Error checking cached analysis for B-roll: {e}")
+                        cached_analysis_json = None
 
-            # Render clips incrementally: render, save, notify one at a time
-            segments_to_render = result.get("segments_to_render", [])
-            if not segments_to_render:
+                cache_hit = bool(cached_transcript and cached_analysis_json)
+
+                await self.task_repo.update_task_runtime_metadata(
+                    self.db,
+                    task_id,
+                    started_at=started_at,
+                    cache_hit=cache_hit,
+                )
+
+                # Update status to processing
+                await update_progress(10, "Starting AI analysis...")
+
+                pipeline_start = perf_counter()
+                result = await self.video_service.process_video_complete(
+                    url=url,
+                    source_type=source_type,
+                    task_id=task_id,
+                    font_family=font_family,
+                    font_size=font_size,
+                    font_color=font_color,
+                    caption_template=caption_template,
+                    processing_mode=processing_mode,
+                    output_format=output_format,
+                    add_subtitles=add_subtitles,
+                    cached_transcript=cached_transcript,
+                    cached_analysis_json=cached_analysis_json,
+                    progress_callback=update_progress,
+                    should_cancel=should_cancel,
+                    include_broll=include_broll,
+                )
+                stage_timings["pipeline_seconds"] = round(
+                    perf_counter() - pipeline_start, 3
+                )
+
+                # Save AI analysis to cache
                 await self.cache_repo.upsert_cache(
                     self.db,
                     cache_key=cache_key,
@@ -238,136 +246,181 @@ class TaskService:
                     source_type=source_type,
                     video_path=result.get("video_path"),
                     transcript_text=result.get("transcript"),
-                    analysis_json=None,
-                )
-                raise ValueError(
-                    "No usable clip segments were selected for this video."
+                    analysis_json=result.get("analysis_json"),
                 )
 
-            await self.cache_repo.upsert_cache(
-                self.db,
-                cache_key=cache_key,
-                source_url=url,
-                source_type=source_type,
-                video_path=result.get("video_path"),
-                transcript_text=result.get("transcript"),
-                analysis_json=result.get("analysis_json"),
-            )
+                # Save proposed clips and pause for review
+                proposed_segments = result.get("segments", [])
+                if not proposed_segments:
+                    raise ValueError("No usable clip segments were selected by AI.")
 
-            video_path = Path(result["video_path"])
-            total_clips = len(segments_to_render)
-            clips_output_dir = Path(self.config.temp_dir) / "clips"
-            clips_output_dir.mkdir(parents=True, exist_ok=True)
-
-            clip_ids = []
-            render_start = perf_counter()
-
-            for i, segment in enumerate(segments_to_render):
-                # Check cancellation
-                if should_cancel and await should_cancel():
-                    raise Exception("Task cancelled")
-
-                # Update progress: 70-95% spread across clips
-                clip_progress = 70 + int(
-                    ((i + 1) / total_clips) * 25
-                ) if total_clips > 0 else 95
-                await update_progress(
-                    clip_progress,
-                    f"Creating clip {i + 1}/{total_clips}...",
-                )
-
-                # Render single clip in thread pool
-                clip_info = await self.video_service.create_single_clip(
-                    video_path,
-                    segment,
-                    i,
-                    clips_output_dir,
-                    font_family,
-                    font_size,
-                    font_color,
-                    caption_template,
-                    output_format,
-                    add_subtitles,
-                    normalized_cleanup_settings,
-                )
-                if clip_info is None:
-                    continue  # Skip failed clip
-
-                # Save to DB immediately
-                clip_id = await self.clip_repo.create_clip(
+                await self.task_repo.save_proposed_clips(
                     self.db,
-                    task_id=task_id,
-                    filename=clip_info["filename"],
-                    file_path=clip_info["path"],
-                    start_time=clip_info["start_time"],
-                    end_time=clip_info["end_time"],
-                    duration=clip_info["duration"],
-                    text=clip_info.get("text", ""),
-                    relevance_score=clip_info.get("relevance_score", 0.0),
-                    reasoning=clip_info.get("reasoning", ""),
-                    clip_order=i + 1,
-                    virality_score=clip_info.get("virality_score", 0),
-                    hook_score=clip_info.get("hook_score", 0),
-                    engagement_score=clip_info.get("engagement_score", 0),
-                    value_score=clip_info.get("value_score", 0),
-                    shareability_score=clip_info.get("shareability_score", 0),
-                    hook_type=clip_info.get("hook_type"),
-                    hook_title=clip_info.get("hook_title"),
-                    duration_category=clip_info.get("duration_category"),
+                    task_id,
+                    json.dumps(proposed_segments),
                 )
-                await self.db.commit()
-                clip_ids.append(clip_id)
 
-                # Update task's clip IDs array
-                await self.task_repo.update_task_clips(self.db, task_id, clip_ids)
+                if progress_callback:
+                    await progress_callback(100, "AI Analysis complete. Waiting for your selection.", "reviewing")
 
-                # Notify frontend via SSE
-                if clip_ready_callback:
-                    clip_record = await self.clip_repo.get_clip_by_id(
-                        self.db, clip_id
+                return {
+                    "task_id": task_id,
+                    "status": "reviewing",
+                    "proposed_clips": proposed_segments,
+                    "video_path": result.get("video_path"),
+                }
+
+            else:
+                # ----------------------------------------------------
+                # PHASE 2: RENDER ONLY
+                # ----------------------------------------------------
+                task = await self.task_repo.get_task_by_id(self.db, task_id)
+                if not task:
+                    raise ValueError("Task not found")
+
+                proposed_clips_str = task.get("proposed_clips")
+                if not proposed_clips_str:
+                    raise ValueError("No proposed clips found for this task; run analysis first.")
+
+                proposed_segments = json.loads(proposed_clips_str)
+                if selected_indexes is not None:
+                    segments_to_render = [
+                        proposed_segments[idx]
+                        for idx in selected_indexes
+                        if idx < len(proposed_segments)
+                    ]
+                else:
+                    segments_to_render = proposed_segments
+
+                if not segments_to_render:
+                    raise ValueError("No segments selected for rendering.")
+
+                # Resolve video path
+                cache_entry = await self.cache_repo.get_cache(self.db, cache_key)
+                video_path_str = cache_entry.get("video_path") if cache_entry else None
+                if not video_path_str:
+                    # Fallback download
+                    downloaded_file = await self.video_service.download_video(url, task_id)
+                    if not downloaded_file:
+                        raise ValueError("Failed to download video file for rendering")
+                    video_path = downloaded_file
+                else:
+                    video_path = Path(video_path_str)
+
+                normalized_cleanup_settings = normalize_clip_cleanup_settings(
+                    **(cleanup_settings or {})
+                )
+
+                total_clips = len(segments_to_render)
+                clips_output_dir = Path(self.config.temp_dir) / "clips"
+                clips_output_dir.mkdir(parents=True, exist_ok=True)
+
+                clip_ids = []
+                render_start = perf_counter()
+
+                # Set status to processing for rendering
+                await update_progress(70, f"Starting rendering for {total_clips} clips...")
+
+                for i, segment in enumerate(segments_to_render):
+                    if should_cancel and await should_cancel():
+                        raise Exception("Task cancelled")
+
+                    clip_progress = 70 + int(((i + 1) / total_clips) * 25) if total_clips > 0 else 95
+                    await update_progress(
+                        clip_progress,
+                        f"Creating clip {i + 1}/{total_clips}...",
                     )
-                    if clip_record:
-                        await clip_ready_callback(i, total_clips, clip_record)
 
-            stage_timings["render_seconds"] = round(
-                perf_counter() - render_start, 3
-            )
+                    clip_info = await self.video_service.create_single_clip(
+                        video_path,
+                        segment,
+                        i,
+                        clips_output_dir,
+                        font_family,
+                        font_size,
+                        font_color,
+                        caption_template,
+                        output_format,
+                        add_subtitles,
+                        normalized_cleanup_settings,
+                    )
+                    if clip_info is None:
+                        continue
 
-            # Mark as completed
-            await self.task_repo.update_task_status(
-                self.db,
-                task_id,
-                "completed",
-                progress=100,
-                progress_message="Complete!",
-            )
+                    # Save to DB immediately
+                    clip_id = await self.clip_repo.create_clip(
+                        self.db,
+                        task_id=task_id,
+                        filename=clip_info["filename"],
+                        file_path=clip_info["path"],
+                        start_time=clip_info["start_time"],
+                        end_time=clip_info["end_time"],
+                        duration=clip_info["duration"],
+                        text=clip_info.get("text", ""),
+                        relevance_score=clip_info.get("relevance_score", 0.0),
+                        reasoning=clip_info.get("reasoning", ""),
+                        clip_order=i + 1,
+                        virality_score=clip_info.get("virality_score", 0),
+                        hook_score=clip_info.get("hook_score", 0),
+                        engagement_score=clip_info.get("engagement_score", 0),
+                        value_score=clip_info.get("value_score", 0),
+                        shareability_score=clip_info.get("shareability_score", 0),
+                        hook_type=clip_info.get("hook_type"),
+                        hook_title=clip_info.get("hook_title"),
+                        duration_category=clip_info.get("duration_category"),
+                    )
+                    await self.db.commit()
+                    clip_ids.append(clip_id)
 
-            if progress_callback:
-                await progress_callback(100, "Complete!", "completed")
+                    # Update task's clip IDs array
+                    await self.task_repo.update_task_clips(self.db, task_id, clip_ids)
 
-            await self.task_repo.update_task_runtime_metadata(
-                self.db,
-                task_id,
-                completed_at=datetime.utcnow(),
-                stage_timings_json=json.dumps(stage_timings),
-                error_code="",
-            )
-            await self._send_completion_notification_if_needed(
-                task_id=task_id,
-                clips_count=len(clip_ids),
-            )
+                    # Notify frontend via SSE
+                    if clip_ready_callback:
+                        clip_record = await self.clip_repo.get_clip_by_id(
+                            self.db, clip_id
+                        )
+                        if clip_record:
+                            await clip_ready_callback(i, total_clips, clip_record)
 
-            logger.info(
-                f"Task {task_id} completed successfully with {len(clip_ids)} clips"
-            )
+                stage_timings["render_seconds"] = round(
+                    perf_counter() - render_start, 3
+                )
 
-            return {
-                "task_id": task_id,
-                "clips_count": len(clip_ids),
-                "segments": result["segments"],
-                "summary": result.get("summary"),
-                "key_topics": result.get("key_topics"),
-            }
+                # Mark as completed
+                await self.task_repo.update_task_status(
+                    self.db,
+                    task_id,
+                    "completed",
+                    progress=100,
+                    progress_message="Complete!",
+                )
+
+                if progress_callback:
+                    await progress_callback(100, "Complete!", "completed")
+
+                await self.task_repo.update_task_runtime_metadata(
+                    self.db,
+                    task_id,
+                    completed_at=datetime.utcnow(),
+                    stage_timings_json=json.dumps(stage_timings),
+                    error_code="",
+                )
+                await self._send_completion_notification_if_needed(
+                    task_id=task_id,
+                    clips_count=len(clip_ids),
+                )
+
+                logger.info(
+                    f"Task {task_id} completed successfully with {len(clip_ids)} clips"
+                )
+
+                return {
+                    "task_id": task_id,
+                    "clips_count": len(clip_ids),
+                    "segments": proposed_segments,
+                    "summary": task.get("source_title"),
+                }
 
         except Exception as e:
             logger.error(f"Error processing task {task_id}: {e}")

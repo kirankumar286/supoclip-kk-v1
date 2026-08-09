@@ -439,6 +439,69 @@ async def get_task_clips(
         raise HTTPException(status_code=500, detail=f"Error retrieving clips: {str(e)}")
 
 
+@router.post("/{task_id}/render")
+async def render_task(
+    task_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Enqueues the rendering phase of a task with selected clip indexes.
+    """
+    try:
+        task_service = TaskService(db)
+        task = await _require_task_owner(request, task_service, db, task_id)
+        
+        data = await request.json()
+        selected_indexes = data.get("selected_indexes")
+        
+        # Reset task status to queued to show rendering progress
+        await task_service.task_repo.update_task_status(
+            db,
+            task_id,
+            "queued",
+            progress=0,
+            progress_message="Enqueueing render job...",
+        )
+        
+        # Load task metadata/settings
+        task_metadata = await _load_task_source_metadata(task_id)
+        
+        # Enqueue job for worker in render mode
+        queue_adapter = getattr(request.app.state, "queue_adapter", JobQueue)
+        job_id = await queue_adapter.enqueue_processing_job(
+            "process_video_task",
+            task.get("processing_mode", "fast"),
+            task_id,
+            task.get("source_url"),
+            task.get("source_type"),
+            task.get("user_id"),
+            task.get("font_family"),
+            task.get("font_size"),
+            task.get("font_color"),
+            task.get("caption_template", "default"),
+            task.get("processing_mode", "fast"),
+            task_metadata.get("output_format", "vertical"),
+            task_metadata.get("add_subtitles", True),
+            task_metadata.get("cleanup_settings"),
+            render_only=True,
+            selected_indexes=selected_indexes,
+        )
+        
+        logger.info(f"Task {task_id} render phase queued with job {job_id}")
+        return {
+            "task_id": task_id,
+            "job_id": job_id,
+            "message": "Rendering started",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting render for task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error starting render: {str(e)}")
+
+
 @router.post("/{task_id}/share")
 async def share_task(
     task_id: str, request: Request, db: AsyncSession = Depends(get_db)

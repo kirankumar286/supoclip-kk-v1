@@ -27,22 +27,11 @@ async def process_video_task(
     output_format: str = "vertical",
     add_subtitles: bool = True,
     cleanup_settings: Dict[str, Any] | None = None,
+    render_only: bool = False,
+    selected_indexes: Optional[list[int]] = None,
 ) -> Dict[str, Any]:
     """
     Background worker task to process a video.
-
-    Args:
-        ctx: arq context (provides Redis connection and other utilities)
-        task_id: Task ID to update
-        url: Video URL or file path
-        source_type: "youtube" or "upload"
-        user_id: User ID who created the task
-        font_family: Font family for subtitles
-        font_size: Font size for subtitles
-        font_color: Font color for subtitles
-
-    Returns:
-        Dict with processing results
     """
     from ..database import AsyncSessionLocal
     from ..runtime_settings import load_runtime_settings_cache
@@ -50,7 +39,7 @@ async def process_video_task(
     from ..workers.progress import ProgressTracker
 
     set_trace_id(f"task-{task_id}")
-    logger.info(f"Worker processing task {task_id}")
+    logger.info(f"Worker processing task {task_id} (render_only={render_only})")
 
     # Create progress tracker
     progress = ProgressTracker(ctx["redis"], task_id)
@@ -92,6 +81,8 @@ async def process_video_task(
                 should_cancel=should_cancel,
                 clip_ready_callback=clip_ready_callback,
                 cleanup_settings=cleanup_settings,
+                render_only=render_only,
+                selected_indexes=selected_indexes,
             )
 
             logger.info(f"Task {task_id} completed successfully")

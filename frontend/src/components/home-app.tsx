@@ -218,6 +218,7 @@ export default function HomeApp() {
   const [pauseThresholdMs, setPauseThresholdMs] = useState("900");
   const [removeFillerWords, setRemoveFillerWords] = useState(false);
   const [filteredWords, setFilteredWords] = useState("");
+  const [includeBRoll, setIncludeBRoll] = useState(false);
 
   // Latest task state
   const [latestTask, setLatestTask] = useState<LatestTask | null>(null);
@@ -505,6 +506,7 @@ export default function HomeApp() {
           pause_threshold_ms: normalizedPauseThreshold,
           remove_filler_words: removeFillerWords,
           filtered_words: normalizedFilteredWords,
+          include_broll: includeBRoll,
         }),
       });
 
@@ -528,6 +530,7 @@ export default function HomeApp() {
         remove_filler_words: removeFillerWords,
         filtered_words: normalizedFilteredWords,
         processing_mode: "fast",
+        include_broll: includeBRoll,
       });
       // Redirect immediately to the task page
       window.location.href = `/tasks/${taskIdFromStart}`;
@@ -1027,6 +1030,22 @@ export default function HomeApp() {
                     <Switch
                       checked={addSubtitles}
                       onCheckedChange={setAddSubtitles}
+                      disabled={generationControlsDisabled}
+                    />
+                  </div>
+
+                  {/* Include B-roll */}
+                  <div className="flex items-center justify-between p-3 border rounded-lg bg-stone-50">
+                    <div className="flex items-center gap-3">
+                      <Film className="w-4 h-4 text-emerald-500" />
+                      <div>
+                        <h3 className="text-sm font-medium text-stone-900">Include B-roll</h3>
+                        <p className="text-xs text-stone-500">Automatically overlay contextual stock footage from Pexels</p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={includeBRoll}
+                      onCheckedChange={setIncludeBRoll}
                       disabled={generationControlsDisabled}
                     />
                   </div>

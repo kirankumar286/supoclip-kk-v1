@@ -39,13 +39,13 @@ class YouTubeDownloader:
         self,
         video_id: str,
     ) -> Dict[str, Any]:
-        """Get optimal yt-dlp options for high-quality downloads."""
+        """Get optimal yt-dlp options for high-quality downloads up to 1080p."""
         output_path = self.temp_dir / f"{video_id}.%(ext)s"
 
         opts = {
             "outtmpl": str(output_path),
-            # Use best available video/audio to avoid quality caps from container constraints.
-            "format": "bestvideo*+bestaudio/best",
+            # Use best available video/audio up to 1080p to avoid memory constraints during transcoding.
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "format_sort": ["res", "fps"],
             "merge_output_format": "mp4",
             "writesubtitles": False,
@@ -580,6 +580,21 @@ def download_youtube_video(
         return None
 
     downloader = YouTubeDownloader()
+    
+    # Check if a completed download already exists
+    completed_files = [
+        file_path
+        for file_path in downloader.temp_dir.glob(f"{video_id}.*")
+        if file_path.is_file()
+        and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
+        and file_path.stat().st_size > 0
+    ]
+    if completed_files:
+        completed_files.sort(key=lambda f: f.stat().st_size, reverse=True)
+        best_file = completed_files[0]
+        logger.info("Found completed cached download, reusing: %s", best_file.name)
+        return best_file
+
     _remove_cached_downloads(downloader.temp_dir, video_id)
 
     config = get_config()

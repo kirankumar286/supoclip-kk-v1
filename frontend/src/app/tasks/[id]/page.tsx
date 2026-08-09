@@ -133,6 +133,7 @@ interface TaskDetails {
   remove_filler_words?: boolean;
   filtered_words?: string[];
   share_enabled?: boolean;
+  proposed_clips?: string | null;
 }
 
 export default function TaskPage() {
@@ -172,6 +173,7 @@ export default function TaskPage() {
   const [projectPauseThresholdMs, setProjectPauseThresholdMs] = useState("900");
   const [projectRemoveFillerWords, setProjectRemoveFillerWords] = useState(false);
   const [projectFilteredWords, setProjectFilteredWords] = useState("");
+  const [projectIncludeBRoll, setProjectIncludeBRoll] = useState(false);
   const [isApplyingSettings, setIsApplyingSettings] = useState(false);
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   const [availableFonts, setAvailableFonts] = useState<FontOption[]>([]);
@@ -180,6 +182,102 @@ export default function TaskPage() {
     Array<{ id: string; name: string; description: string; animation: string }>
   >([]);
   const hasTriggeredAutoRefresh = useRef(false);
+  
+  // Review proposed clips state
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const [viralityThreshold, setViralityThreshold] = useState<number>(0);
+  const [limitCount, setLimitCount] = useState<number>(10);
+  const [isRendering, setIsRendering] = useState(false);
+
+  const proposedSegments = useMemo(() => {
+    const rawClips = task?.proposed_clips ?? (task as any)?.proposedClips;
+    console.log("🧩 proposed_clips raw value:", rawClips, "type:", typeof rawClips);
+    if (!rawClips) return [];
+    if (Array.isArray(rawClips)) {
+      return rawClips;
+    }
+    if (typeof rawClips === "object") {
+      return rawClips;
+    }
+    try {
+      return typeof rawClips === "string" ? JSON.parse(rawClips) : rawClips;
+    } catch (e) {
+      console.error("Failed to parse proposed clips:", e, "Raw value:", rawClips);
+      return [];
+    }
+  }, [task]);
+
+  const proposedCounts = useMemo(() => {
+    const counts = {
+      micro: 0,
+      short: 0,
+      medium: 0,
+      standard: 0,
+      extended: 0,
+    };
+    for (const segment of proposedSegments) {
+      const cat = segment.duration_category || "unknown";
+      if (cat in counts) {
+        counts[cat as keyof typeof counts]++;
+      }
+    }
+    return counts;
+  }, [proposedSegments]);
+
+  useEffect(() => {
+    if (proposedSegments.length > 0) {
+      setSelectedIndexes(proposedSegments.map((_: any, i: number) => i));
+      setLimitCount(proposedSegments.length);
+    }
+  }, [proposedSegments]);
+
+  const handleLimitChange = (count: number) => {
+    setLimitCount(count);
+    const sortedWithIndex = proposedSegments
+      .map((seg: any, idx: number) => {
+        const score = seg.virality?.total_score ?? seg.virality_score ?? 0;
+        return { score, idx };
+      })
+      .sort((a: any, b: any) => b.score - a.score);
+    
+    const selected = sortedWithIndex.slice(0, count).map((x: any) => x.idx);
+    setSelectedIndexes(selected);
+  };
+
+  const handleViralityThresholdChange = (threshold: number) => {
+    setViralityThreshold(threshold);
+    const selected = proposedSegments
+      .map((seg: any, idx: number) => {
+        const score = seg.virality?.total_score ?? seg.virality_score ?? 0;
+        return score >= threshold ? idx : -1;
+      })
+      .filter((idx: number) => idx !== -1);
+    setSelectedIndexes(selected);
+    setLimitCount(selected.length);
+  };
+
+  const handleStartRendering = async () => {
+    if (selectedIndexes.length === 0 || !params.id) return;
+    setIsRendering(true);
+    try {
+      const response = await fetch(`${taskApiUrl}/${params.id}/render`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ selected_indexes: selectedIndexes }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to start rendering");
+      }
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Error starting clip rendering");
+    } finally {
+      setIsRendering(false);
+    }
+  };
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const taskApiUrl = "/api/tasks";
@@ -231,6 +329,7 @@ export default function TaskPage() {
         setProjectPauseThresholdMs(String(taskData.pause_threshold_ms || 900));
         setProjectRemoveFillerWords(Boolean(taskData.remove_filler_words));
         setProjectFilteredWords((taskData.filtered_words || []).join(", "));
+        setProjectIncludeBRoll(Boolean(taskData.include_broll));
 
         // Fetch clips if task is completed or processing (incremental clips)
         if (taskData.status === "completed" || taskData.status === "processing") {
@@ -336,7 +435,8 @@ export default function TaskPage() {
       setProgress(data.progress || 0);
       setProgressMessage(data.message || "");
 
-      if (data.status === "completed") {
+      if (data.status === "completed" || data.status === "reviewing") {
+        eventSource.close();
         void fetchTaskStatus().then(() => triggerAutoRefresh());
       }
     });
@@ -351,7 +451,8 @@ export default function TaskPage() {
       if (data.status) {
         setTask((currentTask) => (currentTask ? { ...currentTask, status: data.status } : currentTask));
 
-        if (data.status === "completed") {
+        if (data.status === "completed" || data.status === "reviewing") {
+          eventSource.close();
           void fetchTaskStatus().then(() => triggerAutoRefresh());
         }
       }
@@ -633,6 +734,7 @@ export default function TaskPage() {
           pause_threshold_ms: safePauseThreshold,
           remove_filler_words: projectRemoveFillerWords,
           filtered_words: normalizedFilteredWords,
+          include_broll: projectIncludeBRoll,
           apply_to_existing: true,
         }),
       });
@@ -706,6 +808,23 @@ export default function TaskPage() {
       return;
     }
     void handleExportClip(clip.id, clip.filename);
+  };
+
+  const handleDownloadAllFiltered = () => {
+    filteredClips.forEach((clip, idx) => {
+      setTimeout(() => {
+        if (exportPreset === "original") {
+          const link = document.createElement("a");
+          link.href = getClipUrl(clip.video_url);
+          link.download = clip.filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        } else {
+          void handleExportClip(clip.id, clip.filename);
+        }
+      }, idx * 350);
+    });
   };
 
   const handleCopyShareLink = async () => {
@@ -991,7 +1110,202 @@ export default function TaskPage() {
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 py-8">
-        {task?.status === "processing" || task?.status === "queued" ? (
+        {task?.status === "reviewing" ? (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <Card className="border border-neutral-100 shadow-sm">
+              <CardContent className="p-6 md:p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-neutral-100 p-2 rounded-lg">
+                    <Zap className="w-6 h-6 text-black" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-black">AI Analysis Complete!</h2>
+                    <p className="text-sm text-neutral-500">
+                      We identified {proposedSegments.length} high-potential segments from your video. Select which ones you want to generate.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Available Categories Counts */}
+                <div className="flex flex-wrap gap-2.5 mb-6 pb-6 border-b border-neutral-100">
+                  <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider w-full mb-1">Available Categories</div>
+                  <div className="flex items-center gap-1.5 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-100/50">
+                    <span className="text-sm">⚡</span>
+                    <span className="text-xs font-bold text-neutral-800">Micro (6-15s):</span>
+                    <span className="text-xs font-extrabold text-black bg-neutral-200/60 px-2 py-0.5 rounded-md">{proposedCounts.micro}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-100/50">
+                    <span className="text-sm">🔥</span>
+                    <span className="text-xs font-bold text-neutral-800">Short (15-30s):</span>
+                    <span className="text-xs font-extrabold text-black bg-neutral-200/60 px-2 py-0.5 rounded-md">{proposedCounts.short}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-100/50">
+                    <span className="text-sm">🎯</span>
+                    <span className="text-xs font-bold text-neutral-800">Medium (30-60s):</span>
+                    <span className="text-xs font-extrabold text-black bg-neutral-200/60 px-2 py-0.5 rounded-md">{proposedCounts.medium}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-100/50">
+                    <span className="text-sm">📺</span>
+                    <span className="text-xs font-bold text-neutral-800">Standard (60-120s):</span>
+                    <span className="text-xs font-extrabold text-black bg-neutral-200/60 px-2 py-0.5 rounded-md">{proposedCounts.standard}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-100/50">
+                    <span className="text-sm">🎥</span>
+                    <span className="text-xs font-bold text-neutral-800">Extended (120-180s):</span>
+                    <span className="text-xs font-extrabold text-black bg-neutral-200/60 px-2 py-0.5 rounded-md">{proposedCounts.extended}</span>
+                  </div>
+                </div>
+
+                {/* Filter and Selection Tools */}
+                <div className="grid md:grid-cols-2 gap-6 bg-neutral-50 p-4 md:p-6 rounded-xl border border-neutral-100 mb-6">
+                  {/* Slider: limit count */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm font-semibold text-neutral-800">
+                      <span className="font-semibold text-neutral-800">Generate Top Clips</span>
+                      <span>{limitCount} of {proposedSegments.length} Selected</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={proposedSegments.length}
+                      value={limitCount}
+                      onChange={(e) => handleLimitChange(Number(e.target.value))}
+                      className="w-full h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-black focus:outline-none"
+                    />
+                    <p className="text-xs text-neutral-400">
+                      Selects the top N clips ranked by AI virality score.
+                    </p>
+                  </div>
+
+                  {/* Dropdown: min virality score */}
+                  <div className="space-y-2">
+                    <span className="block text-sm font-semibold text-neutral-800">
+                      Minimum Virality Rating
+                    </span>
+                    <select
+                      value={viralityThreshold}
+                      onChange={(e) => handleViralityThresholdChange(Number(e.target.value))}
+                      className="w-full bg-white border border-neutral-200 text-neutral-800 text-sm rounded-lg focus:ring-black focus:border-black p-2.5 outline-none"
+                    >
+                      <option value={0}>All Clips</option>
+                      <option value={50}>50+ Score (Standard)</option>
+                      <option value={60}>60+ Score (High Virality)</option>
+                      <option value={70}>70+ Score (Very High)</option>
+                      <option value={80}>80+ Score (Viral Hit)</option>
+                      <option value={90}>90+ Score (Guaranteed Viral)</option>
+                    </select>
+                    <p className="text-xs text-neutral-400">
+                      Selects all clips with a virality score above this threshold.
+                    </p>
+                  </div>
+                </div>
+
+                {/* List of segments */}
+                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                  {proposedSegments.map((segment: any, idx: number) => {
+                    const isSelected = selectedIndexes.includes(idx);
+                    const viralityScore = segment.virality?.total_score ?? segment.virality_score ?? 0;
+                    
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-neutral-50/50 border-neutral-900 shadow-sm"
+                            : "bg-white border-neutral-100 hover:border-neutral-200"
+                        }`}
+                        onClick={() => {
+                          setSelectedIndexes((prev) => {
+                            if (prev.includes(idx)) {
+                              return prev.filter((i) => i !== idx);
+                            }
+                            return [...prev, idx];
+                          });
+                        }}
+                      >
+                        {/* Custom checkbox */}
+                        <div className="pt-1">
+                          <div
+                            className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                              isSelected
+                                ? "bg-black border-black text-white"
+                                : "border-neutral-300 bg-white"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5" />}
+                          </div>
+                        </div>
+
+                        {/* Segment details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                            <h4 className="font-bold text-neutral-900 truncate">
+                              {segment.hook_title || `Potential Clip #${idx + 1}`}
+                            </h4>
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-[10px] bg-neutral-100 text-neutral-800 font-bold px-2 py-0.5 rounded-md border border-neutral-200/50">
+                                {(() => {
+                                  const parse = (t: string) => {
+                                    const parts = (t || "").split(":").map(Number);
+                                    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+                                    if (parts.length === 2) return parts[0] * 60 + parts[1];
+                                    return 0;
+                                  };
+                                  const dur = segment.duration ?? (parse(segment.end_time) - parse(segment.start_time));
+                                  const labelInfo = getClipCategoryLabel(dur, segment.duration_category);
+                                  return `${labelInfo.icon} ${labelInfo.label}`;
+                                })()}
+                              </span>
+                              <Badge className="bg-neutral-100 text-neutral-800 font-semibold border-none rounded-md py-0.5">
+                                {segment.start_time} - {segment.end_time}
+                              </Badge>
+                              <Badge className={`${getViralityBgColor(viralityScore)} text-white font-bold border-none rounded-md py-0.5`}>
+                                🔥 {viralityScore}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          <p className="text-sm text-neutral-600 line-clamp-2 mb-2 font-medium">
+                            &ldquo;{segment.text}&rdquo;
+                          </p>
+
+                          {segment.reasoning && (
+                            <p className="text-xs text-neutral-400 bg-neutral-50 p-2.5 rounded-lg border border-neutral-100/50">
+                              <strong className="text-neutral-500 font-semibold block mb-0.5">AI Insights:</strong>
+                              {segment.reasoning}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-8 flex flex-col md:flex-row justify-between items-center gap-4 border-t border-neutral-100 pt-6">
+                  <div className="text-sm text-neutral-500">
+                    <span className="font-bold text-black">{selectedIndexes.length}</span> of <span className="font-bold text-neutral-800">{proposedSegments.length}</span> clips selected for generation.
+                  </div>
+                  <Button
+                    onClick={handleStartRendering}
+                    disabled={selectedIndexes.length === 0 || isRendering}
+                    className="w-full md:w-auto bg-black hover:bg-neutral-800 text-white font-bold py-6 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all"
+                  >
+                    {isRendering ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                        Generating Clips...
+                      </>
+                    ) : (
+                      <>
+                        Continue &amp; Render {selectedIndexes.length} Clip{selectedIndexes.length !== 1 ? "s" : ""}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : task?.status === "processing" || task?.status === "queued" ? (
           <div className="space-y-8">
             {/* Progress indicator */}
             <div className="flex flex-col items-center py-8">
@@ -1140,14 +1454,25 @@ export default function TaskPage() {
           </Card>
         ) : (
           <div className="grid gap-6">
-            <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" onClick={() => setSettingsSheetOpen(true)}>
-                <Settings2 className="w-4 h-4" />
-                Project Settings
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setSettingsSheetOpen(true)}>
+                  <Settings2 className="w-4 h-4 mr-2" />
+                  Project Settings
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadAllFiltered}
+                  disabled={filteredClips.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Filtered Clips ({filteredClips.length})
+                </Button>
+              </div>
               {selectedClipIds.length >= 2 && (
                 <Button variant="outline" size="sm" onClick={handleMergeClips}>
-                  <GitMerge className="w-4 h-4" />
+                  <GitMerge className="w-4 h-4 mr-2" />
                   Merge Selected ({selectedClipIds.length})
                 </Button>
               )}
@@ -1309,6 +1634,18 @@ export default function TaskPage() {
                         {availableTemplates.length === 0 && <SelectItem value="default">Default</SelectItem>}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="flex items-center gap-2 py-1">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={projectIncludeBRoll}
+                        onChange={(e) => setProjectIncludeBRoll(e.target.checked)}
+                        className="rounded"
+                      />
+                      Include B-roll stock footage overlays
+                    </label>
                   </div>
 
                   <div className="rounded-lg border bg-gray-50 p-3 space-y-3">

@@ -1112,10 +1112,10 @@ def render_source_ranges_ffmpeg(
         command = [
             "ffmpeg",
             "-y",
-            "-ss",
-            f"{start:.3f}",
             "-i",
             str(video_path),
+            "-ss",
+            f"{start:.3f}",
             "-t",
             f"{end - start:.3f}",
             "-c:v",
@@ -2318,12 +2318,12 @@ def build_smooth_pan_expression(keys: List[Tuple[float, int]]) -> str:
 # content (tweets/graphs with NO face) as full-frame fit. A tiny area floor
 # rejects single-pixel false positives. Short layout islands are merged so the
 # layout doesn't flicker, and switch points snap to nearby scene cuts.
-FACE_PRESENCE_MIN_AREA = 0.002
+FACE_PRESENCE_MIN_AREA = 0.008
 FACE_RATE_WINDOW = 2.0
-FACE_PRESENCE_RATE = 0.25
+FACE_PRESENCE_RATE = 0.45
 # Only switch to the full-frame fit for genuinely sustained content shots, so a
 # brief detection drop while talking never causes a jarring zoom-out.
-MIN_LAYOUT_SECONDS = 1.5
+MIN_LAYOUT_SECONDS = 1.2
 LAYOUT_SNAP_WINDOW = 0.6
 
 

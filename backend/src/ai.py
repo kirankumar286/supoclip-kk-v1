@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 IDEAL_CLIP_MIN_SECONDS = int(os.getenv("IDEAL_CLIP_MIN_SECONDS", "20"))
 IDEAL_CLIP_MAX_SECONDS = int(os.getenv("IDEAL_CLIP_MAX_SECONDS", "90"))
-MIN_ACCEPTED_CLIP_SECONDS = int(os.getenv("MIN_ACCEPTED_CLIP_SECONDS", "10"))
-MAX_ACCEPTED_CLIP_SECONDS = int(os.getenv("MAX_ACCEPTED_CLIP_SECONDS", "120"))
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "hook-titles-v4"
+MIN_ACCEPTED_CLIP_SECONDS = int(os.getenv("MIN_ACCEPTED_CLIP_SECONDS", "6"))
+MAX_ACCEPTED_CLIP_SECONDS = int(os.getenv("MAX_ACCEPTED_CLIP_SECONDS", "180"))
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "duration-categories-v2"
 HOOK_TITLE_MAX_CHARS = 64
 HOOK_TITLE_MAX_WORDS = 10
 TRANSCRIPT_SPAN_RE = re.compile(
@@ -347,7 +347,7 @@ SCORING AND OUTPUT RULES:
 - virality_reasoning and reasoning should cite what is actually present in the chosen span
 - summary and key_topics must also stay grounded in the transcript and should not add outside interpretation
 
-Find 5-15 compelling segments that would work well as standalone clips, spread across different duration categories. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
+Find as many compelling segments as possible (from 5 up to 30 or more for longer videos) that would work well as standalone clips, spread across different duration categories. Quality over quantity: choose fewer stronger segments over filling a quota, but don't artificially restrict the number of excellent clips. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
 
 # Lazy-loaded agent to avoid import-time failures when API keys aren't set
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
@@ -488,14 +488,14 @@ Follow this workflow:
 3. Prefer moments with a strong hook, clear payoff, emotional charge, or concrete value.
 4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
 
-Selection target:
-- Choose 5-15 segments total, spread across different duration categories (micro, short, medium, standard, extended).
+- Choose as many segments as possible (from 5 up to 30 or more for longer videos) that would work well as standalone clips, spread across different duration categories (micro, short, medium, standard, extended).
+- Do not artificially limit or cap the number of excellent clips you identify.
 - Try to include at least 1 clip from each duration category when the content supports it.
 - Micro (6-15s): punchy moments, killer one-liners, quick reactions
 - Short (15-30s): one idea with hook and payoff
-- Medium (30-60s): mini-stories with setup, tension, payoff
-- Standard (60-120s): full explanations or arguments
-- Extended (120-180s): deep dives, multi-point narratives
+- Medium (30-60s): complete mini-story
+- Standard (60-120s): full explanation or narrative
+- Extended (120-180s): deep dive, multi-point discussion, or narrative arcs
 - Skip weak standalone picks: intros, sponsor reads, CTAs, contextless quotes, repeated points, vague setup, and answer fragments that require prior context.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 

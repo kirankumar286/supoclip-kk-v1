@@ -147,14 +147,19 @@ class VideoService:
         return transcript
 
     @staticmethod
-    async def analyze_transcript(transcript: str, clip_signals: Optional[str] = None) -> Any:
+    async def analyze_transcript(
+        transcript: str,
+        clip_signals: Optional[str] = None,
+        include_broll: bool = False,
+    ) -> Any:
         """
         Analyze transcript with AI to find relevant segments.
         This is already async, no need to wrap.
         """
-        logger.info("Starting AI analysis of transcript")
+        logger.info(f"Starting AI analysis of transcript with include_broll={include_broll}")
         relevant_parts = await get_most_relevant_parts_by_transcript(
             transcript,
+            include_broll=include_broll,
             clip_signals=clip_signals,
         )
         logger.info(
@@ -260,6 +265,9 @@ class VideoService:
                     cleanup_settings,
                 )
             keep_ranges = extend_keep_ranges_to_sentence_boundary(video_path, keep_ranges)
+            if keep_ranges:
+                first_start, first_end = keep_ranges[0]
+                keep_ranges[0] = (max(0.0, first_start - 0.25), first_end)
 
             success = await run_in_thread(
                 create_optimized_clip,
@@ -280,6 +288,69 @@ class VideoService:
             if not success:
                 logger.error(f"Failed to create clip {clip_index + 1}")
                 return None
+
+            # Apply B-roll overlay if suggestions are present and Pexels API key is set
+            broll_suggestions = segment.get("broll_suggestions", [])
+            if broll_suggestions and get_config().pexels_api_key:
+                logger.info(f"Applying B-roll to clip {clip_index + 1} with {len(broll_suggestions)} suggestions")
+                from ..broll import get_best_broll_video, get_video_download_url, download_broll_video
+                from ..video_utils import apply_broll_to_clip
+
+                downloaded_suggestions = []
+                for suggestion in broll_suggestions:
+                    keyword = suggestion.get("keyword")
+                    duration = suggestion.get("duration", 3.0)
+                    timestamp = suggestion.get("timestamp", 0.0)
+
+                    # Search Pexels for a matching stock video clip
+                    best_video = await get_best_broll_video(
+                        keyword,
+                        target_duration=duration,
+                        orientation="portrait" if output_format == "vertical" else "landscape"
+                    )
+                    if best_video:
+                        download_url = get_video_download_url(
+                            best_video,
+                            quality="hd",
+                            orientation="portrait" if output_format == "vertical" else "landscape"
+                        )
+                        if download_url:
+                            broll_dir = Path(get_config().temp_dir) / "broll"
+                            broll_dir.mkdir(parents=True, exist_ok=True)
+                            temp_broll_path = broll_dir / f"{uuid.uuid4().hex}.mp4"
+                            
+                            logger.info(f"Downloading B-roll video for keyword '{keyword}'...")
+                            download_ok = await download_broll_video(download_url, temp_broll_path)
+                            if download_ok:
+                                suggestion_copy = dict(suggestion)
+                                suggestion_copy["local_path"] = str(temp_broll_path)
+                                downloaded_suggestions.append(suggestion_copy)
+
+                if downloaded_suggestions:
+                    temp_broll_output = clip_path.parent / f"broll_{clip_filename}"
+                    logger.info("Overlaying B-roll onto the clip...")
+                    broll_applied = apply_broll_to_clip(
+                        clip_path,
+                        downloaded_suggestions,
+                        temp_broll_output
+                    )
+                    if broll_applied and temp_broll_output.exists():
+                        try:
+                            # Swap intermediate file out for final output
+                            clip_path.unlink()
+                            temp_broll_output.rename(clip_path)
+                            logger.info(f"Successfully applied B-roll to clip {clip_index + 1}!")
+                        except Exception as e:
+                            logger.error(f"Failed to replace clip with B-roll version: {e}")
+                    else:
+                        logger.error("B-roll composition failed, falling back to original clip.")
+
+                    # Cleanup downloaded temp B-roll files
+                    for suggestion in downloaded_suggestions:
+                        try:
+                            Path(suggestion["local_path"]).unlink()
+                        except Exception:
+                            pass
 
             save_clip_source_ranges(clip_path, keep_ranges)
             cleaned_duration = sum(end - start for start, end in keep_ranges)
@@ -353,6 +424,7 @@ class VideoService:
         cached_analysis_json: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
+        include_broll: bool = False,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
@@ -462,6 +534,7 @@ class VideoService:
                 relevant_parts = await VideoService.analyze_transcript(
                     transcript,
                     clip_signals=clip_signals,
+                    include_broll=include_broll,
                 )
 
             # Step 4: Create clips
@@ -473,50 +546,80 @@ class VideoService:
 
             raw_segments = relevant_parts.most_relevant_segments
             segments_json: List[Dict[str, Any]] = []
+            broll_opportunities = getattr(relevant_parts, "broll_opportunities", None) or []
+
             for segment in raw_segments:
                 if isinstance(segment, dict):
+                    start_time = segment.get("start_time")
+                    end_time = segment.get("end_time")
+                    text = segment.get("text", "")
+                    relevance_score = segment.get("relevance_score", 0.0)
+                    reasoning = segment.get("reasoning", "")
                     virality = segment.get("virality") or {}
                     if hasattr(virality, "model_dump"):
                         virality = virality.model_dump()
-                    segments_json.append(
-                        {
-                            "start_time": segment.get("start_time"),
-                            "end_time": segment.get("end_time"),
-                            "text": segment.get("text", ""),
-                            "relevance_score": segment.get("relevance_score", 0.0),
-                            "reasoning": segment.get("reasoning", ""),
-                            "virality_score": virality.get("total_score", 0),
-                            "hook_score": virality.get("hook_score", 0),
-                            "engagement_score": virality.get("engagement_score", 0),
-                            "value_score": virality.get("value_score", 0),
-                            "shareability_score": virality.get("shareability_score", 0),
-                            "hook_type": virality.get("hook_type"),
-                            "hook_title": segment.get("hook_title"),
-                            "duration_category": segment.get("duration_category"),
-                        }
-                    )
+                    virality_score = virality.get("total_score", 0)
+                    hook_score = virality.get("hook_score", 0)
+                    engagement_score = virality.get("engagement_score", 0)
+                    value_score = virality.get("value_score", 0)
+                    shareability_score = virality.get("shareability_score", 0)
+                    hook_type = virality.get("hook_type")
+                    hook_title = segment.get("hook_title")
+                    duration_category = segment.get("duration_category")
                 else:
+                    start_time = segment.start_time
+                    end_time = segment.end_time
+                    text = segment.text
+                    relevance_score = segment.relevance_score
+                    reasoning = segment.reasoning
                     virality = segment.virality.model_dump() if segment.virality else {}
-                    segments_json.append(
-                        {
-                            "start_time": segment.start_time,
-                            "end_time": segment.end_time,
-                            "text": segment.text,
-                            "relevance_score": segment.relevance_score,
-                            "reasoning": segment.reasoning,
-                            "virality_score": virality.get("total_score", 0),
-                            "hook_score": virality.get("hook_score", 0),
-                            "engagement_score": virality.get("engagement_score", 0),
-                            "value_score": virality.get("value_score", 0),
-                            "shareability_score": virality.get("shareability_score", 0),
-                            "hook_type": virality.get("hook_type"),
-                            "hook_title": getattr(segment, "hook_title", None),
-                            "duration_category": getattr(segment, "duration_category", None),
-                        }
-                    )
+                    virality_score = virality.get("total_score", 0)
+                    hook_score = virality.get("hook_score", 0)
+                    engagement_score = virality.get("engagement_score", 0)
+                    value_score = virality.get("value_score", 0)
+                    shareability_score = virality.get("shareability_score", 0)
+                    hook_type = virality.get("hook_type")
+                    hook_title = getattr(segment, "hook_title", None)
+                    duration_category = getattr(segment, "duration_category", None)
 
-            if processing_mode == "fast":
-                segments_json = segments_json[: runtime_config.fast_mode_max_clips]
+                # Map absolute B-roll opportunities to relative offset suggestions
+                segment_broll = []
+                if include_broll and broll_opportunities:
+                    start_sec = parse_timestamp_to_seconds(start_time)
+                    end_sec = parse_timestamp_to_seconds(end_time)
+                    for opp in broll_opportunities:
+                        try:
+                            opp_sec = parse_timestamp_to_seconds(opp.timestamp)
+                            if start_sec <= opp_sec < end_sec:
+                                relative_time = max(0.0, opp_sec - start_sec)
+                                segment_broll.append({
+                                    "keyword": opp.search_term,
+                                    "timestamp": relative_time,
+                                    "duration": getattr(opp, "duration", 3.0),
+                                    "context": getattr(opp, "context", "")
+                                })
+                        except Exception as e:
+                            logger.warning(f"Error parsing B-roll timestamp: {e}")
+
+                segments_json.append(
+                    {
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "text": text,
+                        "relevance_score": relevance_score,
+                        "reasoning": reasoning,
+                        "virality_score": virality_score,
+                        "hook_score": hook_score,
+                        "engagement_score": engagement_score,
+                        "value_score": value_score,
+                        "shareability_score": shareability_score,
+                        "hook_type": hook_type,
+                        "hook_title": hook_title,
+                        "duration_category": duration_category,
+                        "broll_suggestions": segment_broll,
+                    }
+                )
+
 
             if not segments_json:
                 logger.warning(
@@ -545,6 +648,7 @@ class VideoService:
                         if relevant_parts
                         else [],
                         "most_relevant_segments": segments_json,
+                        "include_broll": include_broll,
                     }
                 ),
             }

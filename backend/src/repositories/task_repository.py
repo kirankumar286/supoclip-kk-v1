@@ -146,6 +146,7 @@ class TaskRepository:
                 row, "completion_notification_sent_at", None
             ),
             "source_url": getattr(row, "source_url", None),
+            "proposed_clips": getattr(row, "proposed_clips", None),
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
@@ -320,6 +321,28 @@ class TaskRepository:
             f"Updated task {task_id} status to {status}"
             + (f" (progress: {progress}%)" if progress else "")
         )
+
+    @staticmethod
+    async def save_proposed_clips(
+        db: AsyncSession,
+        task_id: str,
+        proposed_clips_json: str,
+    ) -> None:
+        """Save proposed clips list for user review."""
+        await db.execute(
+            text("""
+                UPDATE tasks
+                SET proposed_clips = :proposed_clips,
+                    status = 'reviewing',
+                    progress = 100,
+                    progress_message = 'AI Analysis complete. Waiting for your selection.',
+                    updated_at = NOW()
+                WHERE id = :task_id
+            """),
+            {"task_id": task_id, "proposed_clips": proposed_clips_json},
+        )
+        await db.commit()
+        logger.info(f"Saved proposed clips for task {task_id} and set to reviewing")
 
     @staticmethod
     async def update_task_clips(
