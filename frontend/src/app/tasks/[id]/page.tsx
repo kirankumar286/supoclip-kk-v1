@@ -1702,8 +1702,8 @@ export default function TaskPage() {
                 <SheetFooter>
                   <Button
                     className="w-full"
-                    onClick={() => {
-                      handleApplyProjectSettings();
+                    onClick={async () => {
+                      await handleApplyProjectSettings();
                       setSettingsSheetOpen(false);
                     }}
                     disabled={isApplyingSettings}
