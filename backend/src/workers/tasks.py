@@ -48,6 +48,20 @@ async def process_video_task(
         await load_runtime_settings_cache(db)
         task_service = TaskService(db)
 
+        # Check if the task is already in processing, completed, or reviewing state to prevent concurrent runs
+        task = await task_service.task_repo.get_task_by_id(db, task_id)
+        if task:
+            current_status = task.get("status")
+            if current_status == "processing":
+                logger.warning(f"Task {task_id} is already in 'processing' status. Skipping duplicate worker job execution.")
+                return {"status": "skipped", "message": "Duplicate job skipped"}
+            if current_status == "completed" and not render_only:
+                logger.warning(f"Task {task_id} is already completed. Skipping duplicate analysis run.")
+                return {"status": "skipped", "message": "Duplicate analysis job skipped"}
+            if current_status == "reviewing" and not render_only:
+                logger.warning(f"Task {task_id} is already in 'reviewing' status. Skipping duplicate analysis run.")
+                return {"status": "skipped", "message": "Duplicate analysis job skipped"}
+
         try:
             # Progress callback
             async def update_progress(

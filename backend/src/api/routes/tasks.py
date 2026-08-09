@@ -454,6 +454,14 @@ async def render_task(
         
         data = await request.json()
         selected_indexes = data.get("selected_indexes")
+
+        if task.get("status") in ("queued", "processing"):
+            logger.warning(f"Task {task_id} is already queued or processing. Skipping duplicate render job.")
+            return {
+                "task_id": task_id,
+                "job_id": None,
+                "message": "Task is already queued or processing. Skipping duplicate render job.",
+            }
         
         # Reset task status to queued to show rendering progress
         await task_service.task_repo.update_task_status(
@@ -1044,10 +1052,10 @@ async def resume_task(
         task_service = TaskService(db)
         task = await _require_task_owner(request, task_service, db, task_id)
 
-        if task.get("status") not in ["cancelled", "error", "queued"]:
+        if task.get("status") not in ["cancelled", "error"]:
             raise HTTPException(
                 status_code=400,
-                detail="Only cancelled/error/queued tasks can be resumed",
+                detail="Only cancelled or errored tasks can be resumed",
             )
 
         source_url = task.get("source_url")

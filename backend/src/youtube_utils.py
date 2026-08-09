@@ -38,9 +38,18 @@ class YouTubeDownloader:
     def get_optimal_download_options(
         self,
         video_id: str,
+        title: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get optimal yt-dlp options for high-quality downloads up to 1080p."""
-        output_path = self.temp_dir / f"{video_id}.%(ext)s"
+        if title:
+            # Sanitize title to exclude illegal file path chars and spaces
+            sanitized_title = re.sub(r'[\\/*?:"<>| ]', "_", title)
+            sanitized_title = re.sub(r'_+', "_", sanitized_title).strip("_")
+            filename = f"{video_id}_{sanitized_title[:80]}"
+        else:
+            filename = video_id
+
+        output_path = self.temp_dir / f"{filename}.%(ext)s"
 
         opts = {
             "outtmpl": str(output_path),
@@ -199,8 +208,9 @@ def _get_local_video_dimensions(path: Path) -> tuple[int, int]:
 def _remove_cached_downloads(temp_dir: Path, video_id: str) -> None:
     cached_files = [
         file_path
-        for file_path in temp_dir.glob(f"{video_id}.*")
+        for file_path in temp_dir.iterdir()
         if file_path.is_file()
+        and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
         and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
     ]
     if not cached_files:
@@ -498,16 +508,20 @@ def _download_youtube_video_with_ytdlp(
         try:
             logger.info("Download attempt %s/%s", attempt + 1, max_retries)
 
-            ydl_opts = downloader.get_optimal_download_options(video_id)
+            ydl_opts = downloader.get_optimal_download_options(
+                video_id,
+                title=video_info.get("title"),
+            )
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
-            logger.info(f"Searching for downloaded file: {video_id}.*")
+            logger.info(f"Searching for downloaded file: {video_id}_* or {video_id}.*")
             downloaded_files = [
                 file_path
-                for file_path in downloader.temp_dir.glob(f"{video_id}.*")
+                for file_path in downloader.temp_dir.iterdir()
                 if file_path.is_file()
+                and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
                 and file_path.suffix.lower() in [".mp4", ".mkv", ".webm"]
             ]
             if downloaded_files:
@@ -584,8 +598,9 @@ def download_youtube_video(
     # Check if a completed download already exists
     completed_files = [
         file_path
-        for file_path in downloader.temp_dir.glob(f"{video_id}.*")
+        for file_path in downloader.temp_dir.iterdir()
         if file_path.is_file()
+        and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
         and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
         and file_path.stat().st_size > 0
     ]

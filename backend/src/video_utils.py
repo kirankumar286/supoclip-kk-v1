@@ -3337,10 +3337,10 @@ def create_clips_from_segments(
                 )
                 continue
 
-            clip_filename = (
-                f"clip_{i + 1}_{segment['start_time'].replace(':', '')}-"
-                f"{segment['end_time'].replace(':', '')}_{uuid.uuid4().hex[:12]}.mp4"
-            )
+            safe_stem = re.sub(r'[\\/*?:"<>| ]', "_", video_path.stem)
+            safe_stem = re.sub(r'_+', "_", safe_stem).strip("_")[:50]
+            unique_suffix = uuid.uuid4().hex[:4]
+            clip_filename = f"{safe_stem}_clip_{i + 1}_{unique_suffix}.mp4"
             clip_path = output_dir / clip_filename
 
             if provided_keep_ranges:
