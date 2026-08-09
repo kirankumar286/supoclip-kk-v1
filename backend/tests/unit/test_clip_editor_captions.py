@@ -67,3 +67,13 @@ def test_overlay_custom_captions_uses_template_and_cached_word_timings(
     assert "0:00:00.20" in captured["content"]
     assert "0:00:00.80" in captured["content"]
     assert ",73," in captured["content"]
+
+
+def test_run_logs_ffmpeg_commands_correctly(caplog):
+    import logging
+    import sys
+    with caplog.at_level(logging.DEBUG):
+        clip_editor._run([sys.executable, "-V"])
+    assert any("Running command: " in record.message and "-V" in record.message for record in caplog.records)
+
+

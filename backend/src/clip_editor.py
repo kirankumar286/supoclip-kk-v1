@@ -5,11 +5,14 @@ Clip editing helpers for trim/split/merge/caption/export workflows.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 import subprocess
 import tempfile
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from .caption_templates import get_template
 from .video_utils import (
