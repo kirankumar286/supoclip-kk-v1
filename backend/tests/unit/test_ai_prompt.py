@@ -6,6 +6,7 @@ from src.ai import (
     IDEAL_CLIP_MAX_SECONDS,
     IDEAL_CLIP_MIN_SECONDS,
     MIN_ACCEPTED_CLIP_SECONDS,
+    MAX_ACCEPTED_CLIP_SECONDS,
     TranscriptSegment,
     _build_transcript_model,
     _choose_repaired_bounds,
@@ -32,7 +33,7 @@ def test_system_prompt_enforces_grounding_rules():
     assert "Do not judge, moralize, or downgrade a segment" in (
         transcript_analysis_system_prompt
     )
-    assert f"{IDEAL_CLIP_MIN_SECONDS}-{IDEAL_CLIP_MAX_SECONDS} seconds" in (
+    assert "Every returned segment must be 6-180 seconds long." in (
         transcript_analysis_system_prompt
     )
     assert "Bad picks include intros" in transcript_analysis_system_prompt
@@ -51,7 +52,7 @@ def test_build_transcript_analysis_prompt_requires_transcript_fidelity():
     assert "Do not merge separate non-contiguous moments into one segment." in prompt
     assert "If there is a tradeoff between \"viral\" and \"accurate\", choose accuracy." in prompt
     assert "Do not reject or penalize a segment simply because of the subject matter" in prompt
-    assert f"Most selected clips should be {IDEAL_CLIP_MIN_SECONDS}-{IDEAL_CLIP_MAX_SECONDS} seconds." in prompt
+    assert f"Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds." in prompt
     assert "viewer would understand and care without seeing the rest" in prompt
     assert "Return one valid JSON object and nothing else." in prompt
     assert "No Markdown, headings, bullets, code fences" in prompt
@@ -90,7 +91,7 @@ def test_parse_transcript_timestamp_supports_minute_and_hour_formats():
     assert _parse_transcript_timestamp_seconds("01:02:35") == 3755
     assert _format_transcript_timestamp(155) == "02:35"
     assert _format_transcript_timestamp(3755) == "01:02:35"
-    assert MIN_ACCEPTED_CLIP_SECONDS == 15
+    assert MIN_ACCEPTED_CLIP_SECONDS == 6
 
 
 def test_transcript_span_helpers_repair_near_miss_durations():
@@ -106,8 +107,8 @@ def test_transcript_span_helpers_repair_near_miss_durations():
     )
 
     assert _extract_transcript_text(spans, 10, 36) == "Short highlight Payoff"
-    assert _choose_repaired_bounds(spans, 10, 24) == (10, 36)
-    assert _choose_repaired_bounds(spans, 0, 80) == (0, 36)
+    assert _choose_repaired_bounds(spans, 10, 14) == (0, 24)
+    assert _choose_repaired_bounds(spans, 0, 200) == (0, 80)
 
 
 def test_transcript_segment_normalizes_percent_relevance_score():

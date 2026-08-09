@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -65,11 +66,21 @@ def build_task_service() -> TaskService:
     config.aws_secret_access_key = "secret-test"
     config.ses_from_email = "SupoClip <noreply@example.com>"
     service = TaskService(db=AsyncMock(), config=config)
-    service.cache_repo.get_cache = AsyncMock(return_value=None)
+    service.cache_repo.get_cache = AsyncMock(return_value={"video_path": "/tmp/source.mp4"})
     service.cache_repo.upsert_cache = AsyncMock()
     service.task_repo.update_task_runtime_metadata = AsyncMock()
     service.task_repo.update_task_status = AsyncMock()
     service.task_repo.update_task_clips = AsyncMock()
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": None,
+        }
+    )
     service.clip_repo.create_clip = AsyncMock(return_value="clip-1")
     service.video_service.create_single_clip = AsyncMock(return_value=build_clip_result())
     service.video_service.apply_single_transition = AsyncMock(
@@ -80,7 +91,7 @@ def build_task_service() -> TaskService:
             "clips": [build_clip_result()],
             "segments_to_render": [{"start": 0, "end": 10}],
             "video_path": "/tmp/source.mp4",
-            "segments": [],
+            "segments": [build_clip_result()],
             "summary": None,
             "key_topics": [],
             "transcript": "Transcript",
@@ -231,10 +242,22 @@ async def test_process_task_sends_completion_email_when_enabled(monkeypatch):
         FakeTaskCompletionEmailService,
     )
 
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": json.dumps([build_clip_result()]),
+        }
+    )
+
     result = await service.process_task(
         task_id="task-1",
         url="https://www.youtube.com/watch?v=demo",
         source_type="youtube",
+        render_only=True,
     )
 
     assert result["clips_count"] == 1
@@ -277,10 +300,22 @@ async def test_process_task_skips_completion_email_when_disabled(monkeypatch):
         FakeTaskCompletionEmailService,
     )
 
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": json.dumps([build_clip_result()]),
+        }
+    )
+
     await service.process_task(
         task_id="task-1",
         url="https://www.youtube.com/watch?v=demo",
         source_type="youtube",
+        render_only=True,
     )
 
     send_task_completed_email.assert_not_awaited()
@@ -334,10 +369,22 @@ async def test_process_task_keeps_generated_clips_standalone():
         }
     )
 
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": json.dumps([build_clip_result(), build_clip_result()]),
+        }
+    )
+
     result = await service.process_task(
         task_id="task-1",
         url="https://www.youtube.com/watch?v=demo",
         source_type="youtube",
+        render_only=True,
     )
 
     assert result["clips_count"] == 2
@@ -382,10 +429,22 @@ async def test_process_task_ignores_completion_email_failures(monkeypatch):
         FakeTaskCompletionEmailService,
     )
 
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": json.dumps([build_clip_result()]),
+        }
+    )
+
     result = await service.process_task(
         task_id="task-1",
         url="https://www.youtube.com/watch?v=demo",
         source_type="youtube",
+        render_only=True,
     )
 
     assert result["clips_count"] == 1
@@ -430,10 +489,22 @@ async def test_process_task_skips_completion_email_when_already_sent(monkeypatch
         FakeTaskCompletionEmailService,
     )
 
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={
+            "id": "task-1",
+            "user_id": "user-1",
+            "source_id": "source-1",
+            "status": "pending",
+            "include_broll": False,
+            "proposed_clips": json.dumps([build_clip_result()]),
+        }
+    )
+
     await service.process_task(
         task_id="task-1",
         url="https://www.youtube.com/watch?v=demo",
         source_type="youtube",
+        render_only=True,
     )
 
     send_task_completed_email.assert_not_awaited()

@@ -238,6 +238,9 @@ class TaskService:
                     perf_counter() - pipeline_start, 3
                 )
 
+                # Save proposed clips and pause for review
+                proposed_segments = result.get("segments", [])
+
                 # Save AI analysis to cache
                 await self.cache_repo.upsert_cache(
                     self.db,
@@ -246,13 +249,10 @@ class TaskService:
                     source_type=source_type,
                     video_path=result.get("video_path"),
                     transcript_text=result.get("transcript"),
-                    analysis_json=result.get("analysis_json"),
+                    analysis_json=result.get("analysis_json") if proposed_segments else None,
                 )
-
-                # Save proposed clips and pause for review
-                proposed_segments = result.get("segments", [])
                 if not proposed_segments:
-                    raise ValueError("No usable clip segments were selected by AI.")
+                    raise ValueError("No usable clip segments were selected for this video.")
 
                 await self.task_repo.save_proposed_clips(
                     self.db,

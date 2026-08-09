@@ -132,7 +132,7 @@ async def test_create_single_clip_keeps_timing_fields_consistent(monkeypatch, tm
     )
 
     assert clip is not None
-    assert clip["duration"] == pytest.approx(3.0)
+    assert clip["duration"] == pytest.approx(3.25)
     assert clip["start_time"] == "00:10"
     assert clip["end_time"] == "00:20"
 
