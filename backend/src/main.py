@@ -158,7 +158,9 @@ async def start_task(request: Request):
             source.title = get_youtube_video_title(raw_source["url"])
             if not source.title:
                 logger.warning("⚠️ Could not get YouTube title, using default")
-                source.title = "YouTube Video"
+                from .youtube_utils import get_youtube_video_id
+                video_id = get_youtube_video_id(raw_source["url"])
+                source.title = f"YouTube Video {video_id}" if video_id else "YouTube Video"
             logger.info(f"📝 Video title: {source.title}")
         else:
             source.title = raw_source.get("title", "Uploaded Video")
@@ -393,13 +395,17 @@ async def start_task_with_progress(request: Request):
                 source.title = get_youtube_video_title(raw_source["url"])
                 if not source.title:
                     logger.warning("⚠️ Could not get YouTube title, using default")
-                    source.title = "YouTube Video"
+                    from .youtube_utils import get_youtube_video_id
+                    video_id = get_youtube_video_id(raw_source["url"])
+                    source.title = f"YouTube Video {video_id}" if video_id else "YouTube Video"
                 logger.info(f"📝 YouTube video title: {source.title}")
             except Exception as e:
                 logger.warning(
                     f"⚠️ Could not get YouTube title, using default: {str(e)}"
                 )
-                source.title = "YouTube Video"
+                from .youtube_utils import get_youtube_video_id
+                video_id = get_youtube_video_id(raw_source["url"])
+                source.title = f"YouTube Video {video_id}" if video_id else "YouTube Video"
         else:
             source.title = raw_source.get("title", "Uploaded Video")
 

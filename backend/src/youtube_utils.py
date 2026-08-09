@@ -443,12 +443,56 @@ def get_youtube_video_title(
     Enhanced with better error handling and validation.
     """
     video_info = get_youtube_video_info(url)
-    return video_info.get("title") if video_info else None
+    title = video_info.get("title") if video_info else None
+    
+    if not title:
+        # Fallback 1: Scrape YouTube video page HTML
+        try:
+            import urllib.request
+            import re
+            import html as html_lib
+            headers = {
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/91.0.4472.124 Safari/537.36'
+                )
+            }
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                html_content = response.read().decode('utf-8', errors='ignore')
+            
+            # Try og:title meta property
+            match = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html_content, re.IGNORECASE)
+            if match:
+                title = html_lib.unescape(match.group(1).strip())
+            else:
+                # Try title tag
+                match = re.search(r'<title>(.*?)</title>', html_content, re.IGNORECASE)
+                if match:
+                    t = match.group(1).strip()
+                    if t.endswith(" - YouTube"):
+                        t = t[:-10].strip()
+                    title = html_lib.unescape(t)
+            
+            if title:
+                logger.info("Scraped YouTube video title successfully: %s", title)
+                return title
+        except Exception as e:
+            logger.warning("HTML scraper fallback failed to get YouTube title: %s", e)
+
+    if not title:
+        # Fallback 2: Extract Video ID from URL
+        video_id = get_youtube_video_id(url)
+        if video_id:
+            title = f"YouTube Video {video_id}"
+            
+    return title
 
 
 async def async_get_youtube_video_title(url: str) -> Optional[str]:
-    video_info = await async_get_youtube_video_info(url)
-    return video_info.get("title") if video_info else None
+    title = await asyncio.to_thread(get_youtube_video_title, url)
+    return title
 
 
 def download_youtube_video_with_apify(

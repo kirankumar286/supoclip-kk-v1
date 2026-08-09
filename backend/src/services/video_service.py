@@ -124,10 +124,20 @@ class VideoService:
         """
         try:
             title = await async_get_youtube_video_title(url)
-            return title or "YouTube Video"
+            if title:
+                return title
         except Exception as e:
             logger.warning(f"Failed to get video title: {e}")
-            return "YouTube Video"
+
+        try:
+            from ..youtube_utils import get_youtube_video_id
+            video_id = get_youtube_video_id(url)
+            if video_id:
+                return f"YouTube Video {video_id}"
+        except Exception:
+            pass
+
+        return "YouTube Video"
 
     @staticmethod
     async def generate_transcript(
