@@ -24,7 +24,10 @@ const syne = Syne({
   weight: ["400", "500", "600", "700", "800"],
 });
 
+import { ThemeProvider } from "@/components/theme-provider";
+
 const dataFastWebsiteId = process.env.NEXT_PUBLIC_DATAFAST_WEBSITE_ID;
+
 const dataFastDomain = process.env.NEXT_PUBLIC_DATAFAST_DOMAIN;
 const shouldTrackLocalhost = process.env.NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST === "true";
 const isDataFastEnabled = Boolean(dataFastWebsiteId && dataFastDomain);
@@ -71,6 +74,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -100,12 +105,15 @@ export default function RootLayout({
         ) : null}
       </head>
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} antialiased`}>
-        <TooltipProvider>
-          {children}
-          <DataFastIdentity />
-          <FeedbackButton />
-          <Toaster />
-        </TooltipProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <TooltipProvider>
+            {children}
+            <DataFastIdentity />
+            <FeedbackButton />
+            <ThemeToggle />
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

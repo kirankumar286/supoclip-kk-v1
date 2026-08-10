@@ -18,11 +18,19 @@ const DynamicVideoPlayer: React.FC<DynamicVideoPlayerProps> = ({
   className = "",
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [aspectRatio, setAspectRatio] = React.useState<string>("9 / 16");
+
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    if (video.videoWidth && video.videoHeight) {
+      setAspectRatio(`${video.videoWidth} / ${video.videoHeight}`);
+    }
+  };
 
   return (
     <div
-      className={`relative rounded-lg overflow-hidden ${className}`}
-      style={{ height: "min(70vh, 600px)", aspectRatio: "9 / 16" }}
+      className={`relative rounded-lg overflow-hidden bg-black ${className}`}
+      style={{ height: "min(70vh, 500px)", aspectRatio }}
     >
       <video
         ref={videoRef}
@@ -31,6 +39,7 @@ const DynamicVideoPlayer: React.FC<DynamicVideoPlayerProps> = ({
         muted={muted}
         loop={loop}
         poster={poster}
+        onLoadedMetadata={handleLoadedMetadata}
         className="absolute inset-0 w-full h-full object-contain"
         tabIndex={0}
         aria-label="Video player"
@@ -41,5 +50,6 @@ const DynamicVideoPlayer: React.FC<DynamicVideoPlayerProps> = ({
     </div>
   );
 };
+
 
 export default DynamicVideoPlayer;

@@ -357,6 +357,7 @@ CLIP QUANTITY RULES — CRITICAL:
 - For videos over 60 minutes: aim for 20+ clips.
 - Scan the entire transcript from start to finish. Do not stop scanning after finding a few clips.
 - Every format bucket (micro, short, medium, standard, extended) should have at least 1 clip if the content supports it.
+- Pay special attention to Micro clips (6-15s): If there is a highly punchy killer one-liner, quick reaction, or stand-alone surprising statement inside a longer segment, extract it as an independent Micro clip in addition to the longer segment.
 - The goal is to saturate the output with every clip-worthy moment, not to pick only the absolute best few."""
 
 
@@ -505,7 +506,7 @@ Follow this workflow:
 - Do not artificially limit or cap the number of excellent clips you identify.
 - Scan the ENTIRE transcript from beginning to end before finalizing your output.
 - Try to include at least 1 clip from each duration category when the content supports it.
-- Micro (6-15s): punchy moments, killer one-liners, quick reactions
+- Micro (6-15s): punchy moments, killer one-liners, quick reactions. If a longer segment contains a killer one-liner, extract that one-liner separately as a Micro clip too!
 - Short (15-30s): one idea with hook and payoff
 - Medium (30-60s): complete mini-story
 - Standard (60-120s): full explanation or narrative
