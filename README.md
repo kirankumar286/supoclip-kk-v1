@@ -31,6 +31,20 @@ OpusClip is undeniably powerful. It's an AI video clipping tool that can turn lo
 - **Processing limits**: Even paid plans have strict minute limits
 - **Vendor lock-in**: Your content and workflows are tied to their platform
 
+## KK Edition Enhancements
+
+The **KK Edition** of SupoClip adds several advanced features for professional creators, storage organization, and high-reliability API usage:
+
+- 📝 **Editable Generation Names**: Organize your video projects with customizable names. Rename any generation directly in the UI, with the original video filename preserved below it.
+- 📁 **Structured Quality Folders**: Videos are automatically organized in clean, permanent folders:
+  - Source downloads/uploads: `outputs/{generation_name}/{generation_name}.mp4`
+  - High-fidelity clips: `outputs/{generation_name}/clips/Clip_{index}_{sanitized_hook_title}.mp4`
+- 🌟 **Maximum Download Resolution**: YouTube downloader runs at `bestvideo+bestaudio/best` to capture 4K/2K resolution source files without any resolution downscaling.
+- 🔁 **Automatic Gemini Model Fallbacks**: If the primary Gemini model hits a daily limit or rate limit (HTTP `429`), the system automatically cycles through `gemini-3.5-flash`, `gemini-3.1-flash-lite` (500 RPD!), `gemini-2.5-flash`, `gemini-3.6-flash`, and `gemini-2.5-flash-lite`.
+- 🤖 **Robust Social Media Upload Pack**:
+  - Automatically retries API calls on transient errors with exponential backoff.
+  - Features an offline **Dynamic NLP Fallback Generator** that extracts keywords and sentences from the transcript to build unique, customized, platform-native captions, hashtags, and CTAs for all 7 platforms (YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads) even if all LLM API keys are fully exhausted.
+
 ### The SupoClip Solution
 
 SupoClip provides the same core functionality with more control:
