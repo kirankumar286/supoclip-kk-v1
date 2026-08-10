@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -15,29 +14,39 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <Button
-        size="icon"
-        variant="outline"
-        className="fixed bottom-5 z-50 h-11 w-11 rounded-full shadow-lg bg-white border border-stone-200 text-stone-700 opacity-0"
-        style={{ right: "76px" }}
+      <div 
+        className="fixed top-4 z-50 w-16 h-8 bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-full opacity-50"
+        style={{ right: "16px" }}
       />
     );
   }
 
+  const isDark = theme === "dark";
+
   return (
-    <Button
-      size="icon"
-      variant="outline"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="fixed bottom-5 z-50 h-11 w-11 rounded-full shadow-lg bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-850 transition-all hover:scale-105 active:scale-95"
-      style={{ right: "76px" }}
+    <button
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="fixed top-4 z-50 flex items-center justify-between w-16 h-8 p-1 bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-full cursor-pointer relative transition-colors duration-300 focus:outline-none shadow-sm hover:shadow active:scale-95 hover:scale-102 transition-transform"
+      style={{ right: "16px" }}
       aria-label="Toggle theme"
     >
-      {theme === "dark" ? (
-        <Sun className="h-5 w-5 text-amber-500 animate-spin-once" />
-      ) : (
-        <Moon className="h-5 w-5 text-indigo-500" />
-      )}
-    </Button>
+      {/* Sliding indicator knob */}
+      <div
+        className={`absolute top-0.5 left-0.5 w-6.5 h-6.5 bg-white dark:bg-stone-900 rounded-full shadow-md transform transition-transform duration-300 flex items-center justify-center ${
+          isDark ? "translate-x-8" : "translate-x-0"
+        }`}
+      >
+        {isDark ? (
+          <Moon className="w-3.5 h-3.5 text-indigo-400 fill-indigo-400" />
+        ) : (
+          <Sun className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+        )}
+      </div>
+      {/* Background Icons */}
+      <div className="w-full flex justify-between px-1.5 pointer-events-none select-none">
+        <Sun className="w-3.5 h-3.5 text-stone-400 dark:text-stone-500" />
+        <Moon className="w-3.5 h-3.5 text-stone-400 dark:text-stone-500" />
+      </div>
+    </button>
   );
 }
