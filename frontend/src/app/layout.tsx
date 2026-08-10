@@ -24,7 +24,7 @@ const syne = Syne({
   weight: ["400", "500", "600", "700", "800"],
 });
 
-import { ThemeProvider } from "@/components/theme-provider";
+
 
 const dataFastWebsiteId = process.env.NEXT_PUBLIC_DATAFAST_WEBSITE_ID;
 
@@ -74,7 +74,7 @@ export const metadata: Metadata = {
   },
 };
 
-import { ThemeToggle } from "@/components/theme-toggle";
+
 
 export default function RootLayout({
   children,
@@ -82,7 +82,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
         {isDataFastEnabled ? (
           <>
@@ -105,15 +105,12 @@ export default function RootLayout({
         ) : null}
       </head>
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TooltipProvider>
-            {children}
-            <DataFastIdentity />
-            <FeedbackButton />
-            <ThemeToggle />
-            <Toaster />
-          </TooltipProvider>
-        </ThemeProvider>
+        <TooltipProvider>
+          {children}
+          <DataFastIdentity />
+          <FeedbackButton />
+          <Toaster />
+        </TooltipProvider>
       </body>
     </html>
   );
