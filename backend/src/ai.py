@@ -718,6 +718,26 @@ def _repair_segment_bounds(
     return repaired_start, repaired_end
 
 
+def get_google_fallback_models(primary_model: str) -> list[str]:
+    default_list = [
+        "google-gla:gemini-3-flash",
+        "google-gla:gemini-3-flash-preview",
+        "google-gla:gemini-3.5-flash",
+        "google-gla:gemini-3.1-flash-lite",
+        "google-gla:gemini-2.5-flash",
+        "google-gla:gemini-3.6-flash",
+        "google-gla:gemini-2.5-flash-lite",
+    ]
+    # Ensure primary_model is first, and no duplicates
+    models = [primary_model]
+    for m in default_list:
+        if m not in models and m != primary_model:
+            norm = lambda x: x.replace("-preview", "")
+            if not any(norm(existing) == norm(m) for existing in models):
+                models.append(m)
+    return models
+
+
 async def get_most_relevant_parts_by_transcript(
     transcript: str, include_broll: bool = False, clip_signals: str | None = None
 ) -> TranscriptAnalysis:
@@ -726,22 +746,40 @@ async def get_most_relevant_parts_by_transcript(
         f"Starting AI analysis of transcript ({len(transcript)} chars), include_broll={include_broll}"
     )
 
-    try:
-        agent = get_transcript_agent()
+    runtime_config = get_config()
+    provider, _ = _split_llm_name(runtime_config.llm)
+    
+    models_to_try = [runtime_config.llm]
+    if provider == "google-gla":
+        models_to_try = get_google_fallback_models(runtime_config.llm)
 
-        result = await agent.run(
-            build_transcript_analysis_prompt(
-                transcript=transcript,
-                include_broll=include_broll,
-                clip_signals=clip_signals,
+    last_err = None
+    analysis = None
+    for idx, model_name in enumerate(models_to_try):
+        try:
+            logger.info(f"Attempting transcript analysis with model: {model_name} (attempt {idx + 1}/{len(models_to_try)})")
+            agent = get_transcript_agent()
+            result = await agent.run(
+                build_transcript_analysis_prompt(
+                    transcript=transcript,
+                    include_broll=include_broll,
+                    clip_signals=clip_signals,
+                ),
+                model=model_name
             )
-        )
+            analysis = result.output
+            logger.info(f"AI analysis completed successfully with model: {model_name}")
+            break
+        except Exception as e:
+            logger.warning(f"Model {model_name} failed for transcript analysis: {e}")
+            last_err = e
+            if idx < len(models_to_try) - 1:
+                await asyncio.sleep(2.0)
+    else:
+        logger.error(f"All models failed for transcript analysis. Last error: {last_err}")
+        raise RuntimeError(f"Transcript analysis failed on all models: {str(last_err)}") from last_err
 
-        analysis = result.output
-        logger.info(
-            f"AI analysis found {len(analysis.most_relevant_segments)} segments"
-        )
-
+    try:
         # Validation with virality data handling
         validated_segments = []
         transcript_spans = _parse_transcript_spans(transcript)
@@ -1078,29 +1116,50 @@ async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] =
             x_threads=XThreadsMetadata(post="")
         )
 
-    max_attempts = 4
-    for attempt in range(max_attempts):
-        try:
-            agent = get_social_agent()
-            prompt = f"Clip Transcript:\n{clip_text}"
-            if hook_title:
-                prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
-            prompt += "\n\nGenerate the platform-optimized metadata for YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads according to the specified schemas."
-            
-            result = await agent.run(prompt)
-            return result.output
-        except Exception as e:
-            err_msg = str(e).lower()
-            is_transient = any(
-                x in err_msg 
-                for x in ["429", "quota", "rate limit", "resource_exhausted", "timeout", "500", "502", "503", "504", "overloaded"]
-            )
-            if is_transient and attempt < max_attempts - 1:
-                delay = (2 ** attempt) * 3 + 1.0
-                logger.warning(f"Transient error generating social media pack (attempt {attempt + 1}/{max_attempts}): {e}. Retrying in {delay:.1f}s...")
-                await asyncio.sleep(delay)
-            else:
-                logger.error(f"Failed to generate social media pack after {attempt + 1} attempts: {e}")
-                return build_dynamic_social_fallback(clip_text, hook_title)
+    runtime_config = get_config()
+    provider, _ = _split_llm_name(runtime_config.llm)
+    
+    models_to_try = [runtime_config.llm]
+    if provider == "google-gla":
+        models_to_try = get_google_fallback_models(runtime_config.llm)
+
+    last_err = None
+    max_attempts_per_model = 2
+    
+    for model_name in models_to_try:
+        for attempt in range(max_attempts_per_model):
+            try:
+                logger.info(f"Attempting social media generation with model: {model_name} (attempt {attempt + 1}/{max_attempts_per_model})")
+                agent = get_social_agent()
+                prompt = f"Clip Transcript:\n{clip_text}"
+                if hook_title:
+                    prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
+                prompt += "\n\nGenerate the platform-optimized metadata for YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads according to the specified schemas."
+                
+                result = await agent.run(prompt, model=model_name)
+                return result.output
+            except Exception as e:
+                err_msg = str(e).lower()
+                is_transient = any(
+                    x in err_msg 
+                    for x in ["429", "quota", "rate limit", "resource_exhausted", "timeout", "500", "502", "503", "504", "overloaded"]
+                )
+                last_err = e
+                if is_transient:
+                    if attempt < max_attempts_per_model - 1:
+                        delay = (2 ** attempt) * 3 + 1.0
+                        logger.warning(f"Transient error with model {model_name} (attempt {attempt + 1}/{max_attempts_per_model}): {e}. Retrying in {delay:.1f}s...")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.warning(f"Model {model_name} exhausted all attempts due to rate limits. Trying next fallback model...")
+                        await asyncio.sleep(1.0)
+                        break
+                else:
+                    logger.warning(f"Non-transient error with model {model_name}: {e}. Trying next fallback model...")
+                    await asyncio.sleep(1.0)
+                    break
+    else:
+        logger.error(f"All models failed for social media pack generation. Last error: {last_err}")
+        return build_dynamic_social_fallback(clip_text, hook_title)
 
 
