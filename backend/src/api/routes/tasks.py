@@ -156,6 +156,7 @@ PUBLIC_TASK_FIELDS = {
     "clips_count",
     "created_at",
     "updated_at",
+    "name",
 }
 PUBLIC_CLIP_FIELDS = {
     "id",
@@ -630,8 +631,8 @@ async def update_task(
 
         task = await _require_task_owner(request, task_service, db, task_id)
 
-        # Update source title
-        await task_service.source_repo.update_source_title(db, task["source_id"], title)
+        # Update task name (generation name)
+        await task_service.task_repo.update_task_name(db, task_id, title)
 
         return {"message": "Task updated successfully", "task_id": task_id}
 

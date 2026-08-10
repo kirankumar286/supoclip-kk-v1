@@ -28,6 +28,7 @@ class TaskRepository:
         caption_template: str = "default",
         include_broll: bool = False,
         processing_mode: str = "fast",
+        name: Optional[str] = None,
     ) -> str:
         """Create a new task and return its ID."""
         task_id = str(uuid4())
@@ -36,12 +37,12 @@ class TaskRepository:
                 text("""
                     INSERT INTO tasks (
                         id, user_id, source_id, status, font_family, font_size, font_color,
-                        caption_template, include_broll, processing_mode,
+                        caption_template, include_broll, processing_mode, name,
                         created_at, updated_at
                     )
                     VALUES (
                         :task_id, :user_id, :source_id, :status, :font_family, :font_size, :font_color,
-                        :caption_template, :include_broll, :processing_mode,
+                        :caption_template, :include_broll, :processing_mode, :name,
                         NOW(), NOW()
                     )
                     RETURNING id
@@ -57,6 +58,7 @@ class TaskRepository:
                     "caption_template": caption_template,
                     "include_broll": include_broll,
                     "processing_mode": processing_mode,
+                    "name": name,
                 },
             )
         except Exception:
@@ -64,11 +66,11 @@ class TaskRepository:
             result = await db.execute(
                 text("""
                     INSERT INTO tasks (
-                        id, user_id, source_id, status, font_family, font_size, font_color,
+                        id, user_id, source_id, status, font_family, font_size, font_color, name,
                         created_at, updated_at
                     )
                     VALUES (
-                        :task_id, :user_id, :source_id, :status, :font_family, :font_size, :font_color,
+                        :task_id, :user_id, :source_id, :status, :font_family, :font_size, :font_color, :name,
                         NOW(), NOW()
                     )
                     RETURNING id
@@ -81,6 +83,7 @@ class TaskRepository:
                     "font_family": font_family,
                     "font_size": font_size,
                     "font_color": font_color,
+                    "name": name,
                 },
             )
         await db.commit()
@@ -127,6 +130,7 @@ class TaskRepository:
             "source_id": row.source_id,
             "source_title": row.source_title,
             "source_type": row.source_type,
+            "name": getattr(row, "name", None) or row.source_title,
             "status": row.status,
             "progress": getattr(row, "progress", None),
             "progress_message": getattr(row, "progress_message", None),
@@ -229,6 +233,26 @@ class TaskRepository:
             )
 
         return {"modes": metrics}
+
+    @staticmethod
+    async def update_task_name(
+        db: AsyncSession,
+        task_id: str,
+        name: str,
+    ) -> None:
+        """Update task name (generation name)."""
+        await db.execute(
+            text(
+                """
+                UPDATE tasks
+                SET name = :name,
+                    updated_at = NOW()
+                WHERE id = :task_id
+                """
+            ),
+            {"task_id": task_id, "name": name},
+        )
+        await db.commit()
 
     @staticmethod
     async def update_task_settings(

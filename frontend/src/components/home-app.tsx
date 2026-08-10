@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 interface LatestTask {
   id: string;
   source_title: string;
+  name?: string | null;
   source_type: string;
   status: string;
   clips_count: number;
@@ -793,7 +794,7 @@ export default function HomeApp() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-stone-900 truncate">
-                    {latestTask.source_title}
+                    {latestTask.name || latestTask.source_title}
                   </p>
                   <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5">
                     <span className="capitalize">{latestTask.source_type}</span>

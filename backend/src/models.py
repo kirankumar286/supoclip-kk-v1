@@ -129,6 +129,7 @@ class Task(Base):
     source_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
+    name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     generated_clips_ids: Mapped[Optional[List[str]]] = mapped_column(
         ARRAY(String(36)), nullable=True
     )

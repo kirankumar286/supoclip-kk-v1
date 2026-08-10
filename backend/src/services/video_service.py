@@ -102,12 +102,16 @@ class VideoService:
         raise ValueError("Only upload:// references are allowed for local video sources")
 
     @staticmethod
-    async def download_video(url: str, task_id: Optional[str] = None) -> Optional[Path]:
+    async def download_video(
+        url: str,
+        task_id: Optional[str] = None,
+        generation_name: Optional[str] = None,
+    ) -> Optional[Path]:
         """
         Download a YouTube video asynchronously.
         """
         logger.info(f"Starting video download: {url}")
-        video_path = await async_download_youtube_video(url, 3, task_id)
+        video_path = await async_download_youtube_video(url, 3, task_id, generation_name)
 
         if not video_path:
             logger.error(f"Failed to download video: {url}")
@@ -252,10 +256,13 @@ class VideoService:
                 )
                 return None
 
-            safe_stem = re.sub(r'[\\/*?:"<>| ]', "_", video_path.stem)
-            safe_stem = re.sub(r'_+', "_", safe_stem).strip("_")[:50]
-            unique_suffix = uuid.uuid4().hex[:4]
-            clip_filename = f"{safe_stem}_clip_{clip_index + 1}_{unique_suffix}.mp4"
+            from ..video_utils import sanitize_filename
+            hook_title = segment.get("hook_title")
+            if hook_title:
+                sanitized_hook = sanitize_filename(hook_title)[:80]
+                clip_filename = f"Clip_{clip_index + 1}_{sanitized_hook}.mp4"
+            else:
+                clip_filename = f"Clip_{clip_index + 1}.mp4"
             clip_path = output_dir / clip_filename
             if provided_keep_ranges:
                 keep_ranges = provided_keep_ranges
@@ -433,6 +440,7 @@ class VideoService:
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
         include_broll: bool = False,
+        generation_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
@@ -461,13 +469,26 @@ class VideoService:
                             f"Maximum allowed duration is {mins} minutes."
                         )
 
-                video_path = await VideoService.download_video(url, task_id=task_id)
+                video_path = await VideoService.download_video(url, task_id=task_id, generation_name=generation_name)
                 if not video_path:
                     raise Exception("Failed to download video")
             else:
-                video_path = VideoService.resolve_local_video_path(url)
-                if not video_path.exists():
+                uploaded_path = VideoService.resolve_local_video_path(url)
+                if not uploaded_path.exists():
                     raise Exception("Video file not found")
+                
+                # Copy uploaded video to outputs/{generation_name}/{generation_name}.mp4
+                if generation_name:
+                    from ..video_utils import sanitize_filename
+                    import shutil
+                    sanitized_gen_name = sanitize_filename(generation_name)
+                    dest_dir = Path(get_config().output_dir) / sanitized_gen_name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    video_path = dest_dir / f"{sanitized_gen_name}{uploaded_path.suffix}"
+                    if not video_path.exists():
+                        shutil.copy2(uploaded_path, video_path)
+                else:
+                    video_path = uploaded_path
 
             # Post-download duration guard (catches cases where preflight info was unavailable)
             file_duration = VideoService._get_file_duration(video_path)

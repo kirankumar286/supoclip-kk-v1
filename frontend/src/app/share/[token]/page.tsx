@@ -36,6 +36,7 @@ interface SharedClip {
 
 interface SharedTask {
   source_title: string;
+  name?: string | null;
   source_type: string;
   status: string;
   clips_count: number;
@@ -358,7 +359,12 @@ export default function SharedGenerationPage() {
       <div className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-8">
           <p className="mb-2 text-sm font-medium text-neutral-500">Shared generation</p>
-          <h1 className="text-3xl font-bold tracking-tight text-neutral-950">{task.source_title}</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-neutral-950">{task.name || task.source_title}</h1>
+          {task.name && task.name !== task.source_title && (
+            <p className="text-sm text-neutral-500 mt-1">
+              Original video: <span className="font-medium">{task.source_title}</span>
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-neutral-600">
             <Badge variant="outline" className="capitalize">{task.source_type}</Badge>
             <span>{task.clips.length} {task.clips.length === 1 ? "clip" : "clips"}</span>

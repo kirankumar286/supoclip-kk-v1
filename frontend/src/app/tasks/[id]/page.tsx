@@ -347,8 +347,8 @@ const SocialMetadataPackViewer: React.FC<SocialMetadataPackViewerProps> = ({ soc
 interface TaskDetails {
   id: string;
   user_id: string;
-  source_id: string;
   source_title: string;
+  name?: string | null;
   source_type: string;
   status: string;
   progress?: number;
@@ -802,7 +802,7 @@ export default function TaskPage() {
       });
 
       if (response.ok) {
-        setTask(task ? { ...task, source_title: editedTitle } : null);
+        setTask(task ? { ...task, name: editedTitle } : null);
         setIsEditing(false);
       } else {
         alert(await buildSupportError(response, "Failed to update title"));
@@ -1192,7 +1192,7 @@ export default function TaskPage() {
                       variant="ghost"
                       onClick={() => {
                         setIsEditing(false);
-                        setEditedTitle(task.source_title);
+                        setEditedTitle(task.name || task.source_title);
                       }}
                     >
                       <X className="w-4 h-4" />
@@ -1200,14 +1200,23 @@ export default function TaskPage() {
                   </div>
                 ) : (
                   <>
-                    <h1 className={`text-2xl font-bold text-black ${task.status === "processing" || task.status === "queued" ? "shimmer" : ""}`}>{task.source_title}</h1>
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <h1 className={`text-2xl font-bold text-black truncate ${task.status === "processing" || task.status === "queued" ? "shimmer" : ""}`}>
+                        {task.name || task.source_title}
+                      </h1>
+                      {task.name && task.name !== task.source_title && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Original video: <span className="font-medium">{task.source_title}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => {
                           setIsEditing(true);
-                          setEditedTitle(task.source_title);
+                          setEditedTitle(task.name || task.source_title);
                         }}
                       >
                         <Edit2 className="w-4 h-4" />

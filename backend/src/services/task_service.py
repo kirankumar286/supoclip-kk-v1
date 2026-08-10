@@ -29,7 +29,7 @@ from ..clip_editor import (
     merge_clip_files,
     overlay_custom_captions,
 )
-from ..video_utils import VALID_OUTPUT_FORMATS, parse_timestamp_to_seconds
+from ..video_utils import VALID_OUTPUT_FORMATS, parse_timestamp_to_seconds, sanitize_filename
 from ..clip_cleanup import normalize_clip_cleanup_settings
 from ..ai import TRANSCRIPT_ANALYSIS_CACHE_VERSION
 from ..clip_source_map import (
@@ -131,6 +131,7 @@ class TaskService:
             caption_template=caption_template,
             include_broll=include_broll,
             processing_mode=processing_mode,
+            name=title,
         )
 
         logger.info(f"Created task {task_id} for user {user_id}")
@@ -186,6 +187,7 @@ class TaskService:
                 # ----------------------------------------------------
                 task_record = await self.task_repo.get_task_by_id(self.db, task_id)
                 include_broll = bool(task_record.get("include_broll", False)) if task_record else False
+                generation_name = task_record.get("name") if task_record else None
 
                 cache_entry = await self.cache_repo.get_cache(self.db, cache_key)
                 cached_transcript = (
@@ -233,6 +235,7 @@ class TaskService:
                     progress_callback=update_progress,
                     should_cancel=should_cancel,
                     include_broll=include_broll,
+                    generation_name=generation_name,
                 )
                 stage_timings["pipeline_seconds"] = round(
                     perf_counter() - pipeline_start, 3
@@ -283,6 +286,7 @@ class TaskService:
                     raise ValueError("No proposed clips found for this task; run analysis first.")
 
                 proposed_segments = json.loads(proposed_clips_str)
+                generation_name = task.get("name")
                 if selected_indexes is not None:
                     segments_to_render = [
                         proposed_segments[idx]
@@ -300,7 +304,7 @@ class TaskService:
                 video_path_str = cache_entry.get("video_path") if cache_entry else None
                 if not video_path_str:
                     # Fallback download
-                    downloaded_file = await self.video_service.download_video(url, task_id)
+                    downloaded_file = await self.video_service.download_video(url, task_id, generation_name=generation_name)
                     if not downloaded_file:
                         raise ValueError("Failed to download video file for rendering")
                     video_path = downloaded_file
@@ -312,7 +316,11 @@ class TaskService:
                 )
 
                 total_clips = len(segments_to_render)
-                clips_output_dir = Path(self.config.temp_dir) / "clips"
+                if generation_name:
+                    sanitized_gen_name = sanitize_filename(generation_name)
+                    clips_output_dir = Path(self.config.output_dir) / sanitized_gen_name / "clips"
+                else:
+                    clips_output_dir = Path(self.config.temp_dir) / "clips"
                 clips_output_dir.mkdir(parents=True, exist_ok=True)
 
                 clip_ids = []

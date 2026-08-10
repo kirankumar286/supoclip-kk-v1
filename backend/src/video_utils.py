@@ -3759,3 +3759,14 @@ def apply_broll_to_clip(
     except Exception as e:
         logger.error(f"Error applying B-roll to clip: {e}")
         return False
+
+
+def sanitize_filename(name: str) -> str:
+    """Sanitize a string to be a safe directory/file name across OS."""
+    import re
+    # Remove invalid characters for Windows and Unix filesystems
+    sanitized = re.sub(r'[\\/*?:"<>|]', "", name)
+    # Collapse whitespace and strip
+    sanitized = re.sub(r'\s+', " ", sanitized).strip()
+    return sanitized or "untitled"
+

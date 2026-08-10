@@ -979,6 +979,90 @@ def get_social_agent() -> Agent[None, SocialMediaPack]:
     return _social_agent
 
 
+def build_dynamic_social_fallback(clip_text: str, hook_title: Optional[str] = None) -> SocialMediaPack:
+    import re
+    title = hook_title or "Viral Clip"
+    clean_title = re.sub(r'[^\w\s]', '', title)
+    title_words = [
+        w.lower()
+        for w in clean_title.split()
+        if len(w) > 3 and w.lower() not in {"this", "that", "with", "from", "your", "what", "about"}
+    ]
+    
+    # Capitalize title words for hashtags
+    custom_tags = [w.capitalize() for w in title_words[:3]]
+    if not custom_tags:
+        custom_tags = ["Clips"]
+
+    # Extract dynamic caption/description
+    # Try to grab the first two sentences or first 250 characters
+    sentences = re.split(r'(?<=[.!?])\s+', clip_text.strip())
+    if len(sentences) >= 2:
+        fallback_desc = " ".join(sentences[:2])
+    else:
+        fallback_desc = clip_text.strip()
+    
+    if len(fallback_desc) > 300:
+        fallback_desc = fallback_desc[:297] + "..."
+
+    # Form hook variants
+    hooks = [
+        title,
+        f"The Truth About {title}" if not title.lower().startswith("why") else f"Understanding {title}",
+        f"This is {title.lower()}" if not title.lower().startswith("how") else f"Exactly {title.lower()}"
+    ]
+    hooks = [h[:60] for h in hooks]
+
+    # Form keywords
+    keywords = title_words + ["viral", "shorts", "value", "insights"]
+    keywords = list(dict.fromkeys(keywords))[:5] # deduplicate
+
+    return SocialMediaPack(
+        instagram=InstagramMetadata(
+            hook_options=hooks,
+            best_cover_text=title,
+            caption=fallback_desc,
+            hashtags=custom_tags + ["Reels", "Trending", "Clips"],
+            keywords=keywords,
+            cta="Double tap if you agree & follow for more!"
+        ),
+        tiktok=TikTokMetadata(
+            hook_options=hooks,
+            caption=fallback_desc,
+            hashtags=custom_tags + ["Fyp", "ForYou", "ViralClips"],
+            keywords=keywords,
+            cta="Follow for daily value bombs!"
+        ),
+        youtube=YouTubeMetadata(
+            title_options=hooks,
+            best_title=title,
+            description=f"{fallback_desc}\n\nSubscribe for more daily shorts!",
+            hashtags=custom_tags + ["Shorts", "YouTubeShorts"],
+            keywords=keywords,
+            cta="Subscribe to the channel!"
+        ),
+        facebook=FacebookMetadata(
+            title=title,
+            caption=fallback_desc,
+            hashtags=custom_tags + ["FacebookReels", "Reels"],
+            cta="Share this reel with someone who needs to hear it!"
+        ),
+        snapchat=SnapchatMetadata(
+            hook=title[:30],
+            caption=fallback_desc[:150],
+            hashtags=custom_tags + ["Spotlight", "Snap"]
+        ),
+        pinterest=PinterestMetadata(
+            title=title[:90],
+            description=fallback_desc[:450],
+            keywords=keywords
+        ),
+        x_threads=XThreadsMetadata(
+            post=f"{title}\n\n{fallback_desc[:200]}\n\nWhat do you think?"
+        )
+    )
+
+
 async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] = None) -> SocialMediaPack:
     """Generate social media sharing templates for a clip's transcript."""
     logger.info("Generating social media post pack for clip")
@@ -994,64 +1078,29 @@ async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] =
             x_threads=XThreadsMetadata(post="")
         )
 
-    try:
-        agent = get_social_agent()
-        
-        prompt = f"Clip Transcript:\n{clip_text}"
-        if hook_title:
-            prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        try:
+            agent = get_social_agent()
+            prompt = f"Clip Transcript:\n{clip_text}"
+            if hook_title:
+                prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
+            prompt += "\n\nGenerate the platform-optimized metadata for YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads according to the specified schemas."
             
-        prompt += "\n\nGenerate the platform-optimized metadata for YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads according to the specified schemas."
-        
-        result = await agent.run(prompt)
-        return result.output
-    except Exception as e:
-        logger.error(f"Failed to generate social media pack: {e}")
-        # Fallback to empty/placeholder structures
-        fallback_title = hook_title or "Viral Clip"
-        fallback_desc = clip_text[:150] + "..." if len(clip_text) > 150 else clip_text
-        return SocialMediaPack(
-            instagram=InstagramMetadata(
-                hook_options=[fallback_title],
-                best_cover_text=fallback_title,
-                caption=fallback_desc,
-                hashtags=["reels", "clips"],
-                keywords=["video"],
-                cta="Watch more"
-            ),
-            tiktok=TikTokMetadata(
-                hook_options=[fallback_title],
-                caption=fallback_desc,
-                hashtags=["tiktok", "clips"],
-                keywords=["video"],
-                cta="Follow for more"
-            ),
-            youtube=YouTubeMetadata(
-                title_options=[fallback_title],
-                best_title=fallback_title,
-                description=fallback_desc,
-                hashtags=["shorts", "yt"],
-                keywords=["shorts"],
-                cta="Subscribe"
-            ),
-            facebook=FacebookMetadata(
-                title=fallback_title,
-                caption=fallback_desc,
-                hashtags=["facebook", "reels"],
-                cta="Share this video"
-            ),
-            snapchat=SnapchatMetadata(
-                hook=fallback_title,
-                caption=fallback_desc,
-                hashtags=["spotlight"]
-            ),
-            pinterest=PinterestMetadata(
-                title=fallback_title,
-                description=fallback_desc,
-                keywords=["inspiration"]
-            ),
-            x_threads=XThreadsMetadata(
-                post=fallback_desc[:270]
+            result = await agent.run(prompt)
+            return result.output
+        except Exception as e:
+            err_msg = str(e).lower()
+            is_transient = any(
+                x in err_msg 
+                for x in ["429", "quota", "rate limit", "resource_exhausted", "timeout", "500", "502", "503", "504", "overloaded"]
             )
-        )
+            if is_transient and attempt < max_attempts - 1:
+                delay = (2 ** attempt) * 3 + 1.0
+                logger.warning(f"Transient error generating social media pack (attempt {attempt + 1}/{max_attempts}): {e}. Retrying in {delay:.1f}s...")
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"Failed to generate social media pack after {attempt + 1} attempts: {e}")
+                return build_dynamic_social_fallback(clip_text, hook_title)
+
 

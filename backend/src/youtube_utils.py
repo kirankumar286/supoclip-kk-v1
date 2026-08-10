@@ -39,22 +39,32 @@ class YouTubeDownloader:
         self,
         video_id: str,
         title: Optional[str] = None,
+        generation_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get optimal yt-dlp options for high-quality downloads up to 1080p."""
-        if title:
+        from .video_utils import sanitize_filename
+        if generation_name:
+            sanitized_gen_name = sanitize_filename(generation_name)
+            dest_dir = Path(get_config().output_dir) / sanitized_gen_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            output_path = dest_dir / f"{sanitized_gen_name}.%(ext)s"
+            download_format = "bestvideo+bestaudio/best"
+        elif title:
             # Sanitize title to exclude illegal file path chars and spaces
             sanitized_title = re.sub(r'[\\/*?:"<>| ]', "_", title)
             sanitized_title = re.sub(r'_+', "_", sanitized_title).strip("_")
             filename = f"{video_id}_{sanitized_title[:80]}"
+            output_path = self.temp_dir / f"{filename}.%(ext)s"
+            download_format = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
         else:
             filename = video_id
-
-        output_path = self.temp_dir / f"{filename}.%(ext)s"
+            output_path = self.temp_dir / f"{filename}.%(ext)s"
+            download_format = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
 
         opts = {
             "outtmpl": str(output_path),
-            # Use best available video/audio up to 1080p to avoid memory constraints during transcoding.
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            # Use best available video/audio
+            "format": download_format,
             "format_sort": ["res", "fps"],
             "merge_output_format": "mp4",
             "writesubtitles": False,
@@ -519,6 +529,7 @@ def _download_youtube_video_with_ytdlp(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    generation_name: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Download YouTube video with optimized settings and retry logic.
@@ -555,19 +566,32 @@ def _download_youtube_video_with_ytdlp(
             ydl_opts = downloader.get_optimal_download_options(
                 video_id,
                 title=video_info.get("title"),
+                generation_name=generation_name,
             )
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
-            logger.info(f"Searching for downloaded file: {video_id}_* or {video_id}.*")
-            downloaded_files = [
-                file_path
-                for file_path in downloader.temp_dir.iterdir()
-                if file_path.is_file()
-                and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
-                and file_path.suffix.lower() in [".mp4", ".mkv", ".webm"]
-            ]
+            if generation_name:
+                from .video_utils import sanitize_filename
+                sanitized_gen_name = sanitize_filename(generation_name)
+                dest_dir = Path(get_config().output_dir) / sanitized_gen_name
+                downloaded_files = [
+                    file_path
+                    for file_path in dest_dir.iterdir()
+                    if file_path.is_file()
+                    and file_path.name.startswith(sanitized_gen_name)
+                    and file_path.suffix.lower() in [".mp4", ".mkv", ".webm"]
+                ]
+            else:
+                logger.info(f"Searching for downloaded file: {video_id}_* or {video_id}.*")
+                downloaded_files = [
+                    file_path
+                    for file_path in downloader.temp_dir.iterdir()
+                    if file_path.is_file()
+                    and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
+                    and file_path.suffix.lower() in [".mp4", ".mkv", ".webm"]
+                ]
             if downloaded_files:
                 ranked_files = []
                 for candidate in downloaded_files:
@@ -625,6 +649,7 @@ def download_youtube_video(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    generation_name: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Download YouTube video using the configured provider.
@@ -639,20 +664,38 @@ def download_youtube_video(
 
     downloader = YouTubeDownloader()
     
-    # Check if a completed download already exists
-    completed_files = [
-        file_path
-        for file_path in downloader.temp_dir.iterdir()
-        if file_path.is_file()
-        and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
-        and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
-        and file_path.stat().st_size > 0
-    ]
-    if completed_files:
-        completed_files.sort(key=lambda f: f.stat().st_size, reverse=True)
-        best_file = completed_files[0]
-        logger.info("Found completed cached download, reusing: %s", best_file.name)
-        return best_file
+    if generation_name:
+        from .video_utils import sanitize_filename
+        sanitized_gen_name = sanitize_filename(generation_name)
+        dest_dir = Path(get_config().output_dir) / sanitized_gen_name
+        if dest_dir.exists():
+            completed_files = [
+                file_path
+                for file_path in dest_dir.iterdir()
+                if file_path.is_file()
+                and file_path.name.startswith(sanitized_gen_name)
+                and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
+                and file_path.stat().st_size > 0
+            ]
+            if completed_files:
+                completed_files.sort(key=lambda f: f.stat().st_size, reverse=True)
+                best_file = completed_files[0]
+                logger.info("Found completed cached download in output dir, reusing: %s", best_file.name)
+                return best_file
+    else:
+        completed_files = [
+            file_path
+            for file_path in downloader.temp_dir.iterdir()
+            if file_path.is_file()
+            and (file_path.name.startswith(f"{video_id}.") or file_path.name.startswith(f"{video_id}_"))
+            and file_path.suffix.lower() in [".mp4", ".mkv", ".webm", ".mov", ".m4v"]
+            and file_path.stat().st_size > 0
+        ]
+        if completed_files:
+            completed_files.sort(key=lambda f: f.stat().st_size, reverse=True)
+            best_file = completed_files[0]
+            logger.info("Found completed cached download, reusing: %s", best_file.name)
+            return best_file
 
     _remove_cached_downloads(downloader.temp_dir, video_id)
 
@@ -670,6 +713,7 @@ def download_youtube_video(
                 url,
                 max_retries,
                 task_id,
+                generation_name=generation_name,
             )
             if downloaded_path:
                 return downloaded_path
@@ -706,9 +750,10 @@ async def async_download_youtube_video(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    generation_name: Optional[str] = None,
 ) -> Optional[Path]:
     logger.info(f"Starting async YouTube download: {url}")
-    return await asyncio.to_thread(download_youtube_video, url, max_retries, task_id)
+    return await asyncio.to_thread(download_youtube_video, url, max_retries, task_id, generation_name)
 
 
 def get_video_duration(url: str) -> Optional[int]:

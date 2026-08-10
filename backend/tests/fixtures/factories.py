@@ -103,6 +103,7 @@ async def create_task(
     user_id: str,
     source_id: str,
     status: str = "completed",
+    name: str | None = None,
 ):
     task_id = task_id or str(uuid4())
     await session.execute(
@@ -110,10 +111,10 @@ async def create_task(
             """
             INSERT INTO tasks (
                 id, user_id, source_id, generated_clips_ids, status,
-                font_family, font_size, font_color, created_at, updated_at
+                font_family, font_size, font_color, name, created_at, updated_at
             ) VALUES (
                 :id, :user_id, :source_id, ARRAY[]::VARCHAR(36)[], :status,
-                'TikTokSans-Regular', 24, '#FFFFFF', NOW(), NOW()
+                'TikTokSans-Regular', 24, '#FFFFFF', :name, NOW(), NOW()
             )
             """
         ),
@@ -122,6 +123,7 @@ async def create_task(
             "user_id": user_id,
             "source_id": source_id,
             "status": status,
+            "name": name,
         },
     )
     await session.commit()
