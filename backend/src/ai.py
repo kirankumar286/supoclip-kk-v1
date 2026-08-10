@@ -877,24 +877,74 @@ def get_most_relevant_parts_sync(transcript: str) -> TranscriptAnalysis:
     return asyncio.run(get_most_relevant_parts_by_transcript(transcript))
 
 
-class PlatformMetadata(BaseModel):
-    title: str = Field(description="Suggested punchy, highly-optimized title for this specific platform (3-10 words)")
-    description: str = Field(description="Engaging caption or description text tailored for this platform's format and audience")
-    hashtags: List[str] = Field(description="3 to 7 highly relevant, high-traffic hashtags (without the leading '#' sign)")
+class InstagramMetadata(BaseModel):
+    hook_options: List[str] = Field(description="3 compelling hook/title options optimized for Instagram Reels (under 10 words each)")
+    best_cover_text: str = Field(description="Best on-video cover text to display on the Reels cover image/video to maximize CTR")
+    caption: str = Field(description="Instagram Reel caption. Hook the reader in first 5 words, keep paragraphs short, include space for tags/mentions.")
+    hashtags: List[str] = Field(description="5 to 8 niche-specific, relevant hashtags (without the leading '#' sign). NO generic spam.")
+    keywords: List[str] = Field(description="3 to 5 SEO/search keywords relevant to the Reels algorithm")
+    cta: str = Field(description="Strong, natural Call-To-Action (CTA)")
+
+class TikTokMetadata(BaseModel):
+    hook_options: List[str] = Field(description="3 hook/title options optimized for TikTok's fast-paced style")
+    caption: str = Field(description="TikTok caption. Punchy, native, short, using keywords naturally.")
+    hashtags: List[str] = Field(description="5 to 8 hyper-relevant TikTok hashtags (without the leading '#' sign). NO generic tags.")
+    keywords: List[str] = Field(description="3 to 5 TikTok search/SEO keywords")
+    cta: str = Field(description="Call-To-Action optimized for TikTok")
+
+class YouTubeMetadata(BaseModel):
+    title_options: List[str] = Field(description="3 SEO-friendly title options under 60 characters")
+    best_title: str = Field(description="The single best, highly-clickable and searchable title")
+    description: str = Field(description="Short keyword-rich description (1-2 sentences)")
+    hashtags: List[str] = Field(description="3 to 5 relevant hashtags (without the leading '#' sign)")
+    keywords: List[str] = Field(description="3 to 5 SEO keywords for YouTube Shorts search")
+    cta: str = Field(description="Call-To-Action")
+
+class FacebookMetadata(BaseModel):
+    title: str = Field(description="Hook or title optimized for Facebook Reels")
+    caption: str = Field(description="Facebook caption, tailored for Facebook Reels/Feed")
+    hashtags: List[str] = Field(description="3 to 5 relevant hashtags (without the leading '#' sign)")
+    cta: str = Field(description="Strong Facebook-oriented CTA")
+
+class SnapchatMetadata(BaseModel):
+    hook: str = Field(description="Short, snappy hook/title under 6 words")
+    caption: str = Field(description="Very short caption suited for Snapchat Spotlight/Stories")
+    hashtags: List[str] = Field(description="2 to 4 relevant hashtags (without the leading '#' sign)")
+
+class PinterestMetadata(BaseModel):
+    title: str = Field(description="SEO-friendly Board/Pin Title (under 100 characters)")
+    description: str = Field(description="Pin Description containing search keywords naturally (under 500 characters)")
+    keywords: List[str] = Field(description="3 to 5 Pinterest search keywords/tags")
+
+class XThreadsMetadata(BaseModel):
+    post: str = Field(description="Short post accompanying the video clip (under 280 characters, suitable for X/Threads. High punchiness, zero fluff.)")
 
 
 class SocialMediaPack(BaseModel):
-    youtube: PlatformMetadata = Field(description="Optimized for YouTube Shorts or long-form video")
-    tiktok: PlatformMetadata = Field(description="Optimized for TikTok's trends and fast-paced style")
-    instagram: PlatformMetadata = Field(description="Optimized for Instagram Reels' style and captions")
-    facebook: PlatformMetadata = Field(description="Optimized for Facebook Reels or feed videos")
+    instagram: InstagramMetadata = Field(description="Optimized for Instagram Reels")
+    tiktok: TikTokMetadata = Field(description="Optimized for TikTok")
+    youtube: YouTubeMetadata = Field(description="Optimized for YouTube Shorts")
+    facebook: FacebookMetadata = Field(description="Optimized for Facebook Reels")
+    snapchat: SnapchatMetadata = Field(description="Optimized for Snapchat")
+    pinterest: PinterestMetadata = Field(description="Optimized for Pinterest")
+    x_threads: XThreadsMetadata = Field(description="Optimized for X (Twitter) and Threads")
 
 
 social_media_system_prompt = """You are a world-class social media strategist and copywriting expert.
-Your job is to generate a 'Social Media Post Pack' for a video clip based on its transcript text and the on-screen headline hook.
-You will write highly optimized titles, captions/descriptions, and hashtags tailored for YouTube (Shorts), TikTok, Instagram (Reels), and Facebook.
+Your job is to generate a comprehensive, highly optimized 'Social Media Post Pack' for a video clip based on its transcript text and the on-screen headline hook.
+You will write platform-optimized copy for YouTube (Shorts), TikTok, Instagram (Reels), Facebook Reels, Snapchat, Pinterest, and X (formerly Twitter) / Threads.
 
-Format the output strictly as JSON matching the requested schema. Do not output markdown, explanations, or commentary outside the JSON object."""
+Optimization Rules to Follow Strictly:
+1. Optimize for curiosity, watch time, completion, rewatches, shares, saves, and follows.
+2. Make the first words highly compelling without misleading the viewer (never invent facts or use misleading clickbait).
+3. Use platform-native wording; do not copy the same caption everywhere. Tailor formatting and tone to each platform's culture and guidelines.
+4. Use relevant keywords naturally for search/discovery.
+5. Use only relevant hashtags; avoid generic hashtag spam such as #viral, #fyp, #trending unless genuinely relevant.
+6. Optimize language and references for the most relevant high-value/Tier-1 audiences (US, Canada, UK, Australia, Western Europe, etc.) when appropriate.
+7. Consider the video's topic, emotion, niche, audience, cultural relevance, and likely viewer intent.
+8. Prioritize audience quality over meaningless views.
+9. Keep titles and captions concise and natural.
+10. Return clean, copy-paste-ready output with no unnecessary explanation. Format the output strictly as JSON matching the requested schema. Do not output markdown, explanations, or commentary outside the JSON object."""
 
 _social_agent: Optional[Agent[None, SocialMediaPack]] = None
 _social_agent_signature = None
@@ -933,12 +983,14 @@ async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] =
     logger.info("Generating social media post pack for clip")
     if not clip_text or not clip_text.strip():
         # Return an empty pack if no text
-        empty_platform = PlatformMetadata(title="", description="", hashtags=[])
         return SocialMediaPack(
-            youtube=empty_platform,
-            tiktok=empty_platform,
-            instagram=empty_platform,
-            facebook=empty_platform
+            instagram=InstagramMetadata(hook_options=[], best_cover_text="", caption="", hashtags=[], keywords=[], cta=""),
+            tiktok=TikTokMetadata(hook_options=[], caption="", hashtags=[], keywords=[], cta=""),
+            youtube=YouTubeMetadata(title_options=[], best_title="", description="", hashtags=[], keywords=[], cta=""),
+            facebook=FacebookMetadata(title="", caption="", hashtags=[], cta=""),
+            snapchat=SnapchatMetadata(hook="", caption="", hashtags=[]),
+            pinterest=PinterestMetadata(title="", description="", keywords=[]),
+            x_threads=XThreadsMetadata(post="")
         )
 
     try:
@@ -948,21 +1000,57 @@ async def generate_social_media_pack(clip_text: str, hook_title: Optional[str] =
         if hook_title:
             prompt += f"\n\nOn-Screen Title Hook:\n{hook_title}"
             
-        prompt += "\n\nGenerate the platform-optimized titles, captions/descriptions, and hashtags for YouTube, TikTok, Instagram, and Facebook."
+        prompt += "\n\nGenerate the platform-optimized metadata for YouTube, TikTok, Instagram, Facebook, Snapchat, Pinterest, and X/Threads according to the specified schemas."
         
         result = await agent.run(prompt)
         return result.output
     except Exception as e:
         logger.error(f"Failed to generate social media pack: {e}")
         # Fallback to empty/placeholder structures
-        placeholder = PlatformMetadata(
-            title=hook_title or "Viral Clip",
-            description=clip_text[:150] + "..." if len(clip_text) > 150 else clip_text,
-            hashtags=["viral", "clips", "supoclip"]
-        )
+        fallback_title = hook_title or "Viral Clip"
+        fallback_desc = clip_text[:150] + "..." if len(clip_text) > 150 else clip_text
         return SocialMediaPack(
-            youtube=placeholder,
-            tiktok=placeholder,
-            instagram=placeholder,
-            facebook=placeholder
+            instagram=InstagramMetadata(
+                hook_options=[fallback_title],
+                best_cover_text=fallback_title,
+                caption=fallback_desc,
+                hashtags=["reels", "clips"],
+                keywords=["video"],
+                cta="Watch more"
+            ),
+            tiktok=TikTokMetadata(
+                hook_options=[fallback_title],
+                caption=fallback_desc,
+                hashtags=["tiktok", "clips"],
+                keywords=["video"],
+                cta="Follow for more"
+            ),
+            youtube=YouTubeMetadata(
+                title_options=[fallback_title],
+                best_title=fallback_title,
+                description=fallback_desc,
+                hashtags=["shorts", "yt"],
+                keywords=["shorts"],
+                cta="Subscribe"
+            ),
+            facebook=FacebookMetadata(
+                title=fallback_title,
+                caption=fallback_desc,
+                hashtags=["facebook", "reels"],
+                cta="Share this video"
+            ),
+            snapchat=SnapchatMetadata(
+                hook=fallback_title,
+                caption=fallback_desc,
+                hashtags=["spotlight"]
+            ),
+            pinterest=PinterestMetadata(
+                title=fallback_title,
+                description=fallback_desc,
+                keywords=["inspiration"]
+            ),
+            x_threads=XThreadsMetadata(
+                post=fallback_desc[:270]
+            )
         )
+
