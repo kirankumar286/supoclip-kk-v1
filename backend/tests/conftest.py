@@ -49,7 +49,12 @@ class FakeQueueAdapter:
 
 @pytest.fixture(scope="session")
 def test_database_url():
-    return os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if url and url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url and "sslmode=" in url:
+        url = url.replace("sslmode=", "ssl=")
+    return url
 
 
 @pytest.fixture(scope="session")
